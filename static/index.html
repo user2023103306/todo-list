@@ -9,6 +9,22 @@
 <body>
     <div class="container">
 
+        <!-- ==================== 模式切换按钮 ==================== -->
+        <div class="theme-switcher">
+            <button class="theme-btn active" data-theme="normal" title="普通模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <span>普通</span>
+            </button>
+            <button class="theme-btn" data-theme="eyecare" title="护眼模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span>护眼</span>
+            </button>
+            <button class="theme-btn" data-theme="night" title="夜间模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <span>夜间</span>
+            </button>
+        </div>
+
         <!-- ==================== 登录页 ==================== -->
         <div id="view-login" class="view">
             <div class="auth-wrapper">
@@ -79,6 +95,21 @@
             </div>
         </div>
 
+        <!-- ==================== 励志名言页 ==================== -->
+        <div id="view-quote" class="view hidden">
+            <div class="quote-wrapper">
+                <div class="quote-card">
+                    <div class="quote-icon">&#127775;</div>
+                    <p class="quote-text" id="quote-text"></p>
+                    <div class="quote-dots">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ==================== 任务主页 ==================== -->
         <div id="view-main" class="view hidden">
             <!-- 顶部栏 -->
@@ -94,7 +125,9 @@
                     </div>
                     <span class="topbar-phone" id="display-phone"></span>
                 </div>
-                <button class="btn btn-sm btn-outline" id="btn-logout">退出</button>
+                <div class="topbar-right">
+                    <button class="btn btn-sm btn-outline" id="btn-logout">退出</button>
+                </div>
             </header>
 
             <!-- 统计面板 -->

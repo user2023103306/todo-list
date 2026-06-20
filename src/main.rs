@@ -484,9 +484,14 @@ async fn main() {
     let port = 8080;
     println!("========================================");
     println!("  TaskFlow - 多用户局域网任务管理工具");
+    println!("========================================");
     println!("  服务已启动！");
-    println!("  本机访问: http://localhost:{port}");
-    println!("  局域网:   http://<你的IP>:{port}");
+    println!();
+    println!("  请在浏览器中访问:");
+    println!("  http://localhost:{port}");
+    println!();
+    println!("  局域网内其他设备访问:");
+    println!("  http://<你的IP>:{port}");
     println!("========================================");
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))

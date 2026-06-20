@@ -21,9 +21,139 @@
     --radius-sm: 10px;
 }
 
+/* ─── 护眼模式 ────────────────────────────────────────────── */
+
+body.eyecare {
+    --bg: #f5f0e8;
+    --card: #faf6ee;
+    --text: #3d3225;
+    --text-light: #6b5c4d;
+    --text-muted: #a89888;
+    --border: #e0d5c5;
+    --primary: #c8a87c;
+    --primary-dark: #b89868;
+    --secondary: #d4a76a;
+    --shadow: 0 2px 16px rgba(200, 168, 124, 0.12);
+    --shadow-hover: 0 6px 24px rgba(200, 168, 124, 0.2);
+}
+
+body.eyecare .topbar-phone {
+    background: #f0e8d8;
+}
+
+/* ─── 夜间模式 ────────────────────────────────────────────── */
+
+body.night {
+    --bg: #1a1a2e;
+    --card: #252540;
+    --text: #e0e0e0;
+    --text-light: #a0a0b0;
+    --text-muted: #6c6c80;
+    --border: #3a3a50;
+    --primary: #7c8cf5;
+    --primary-dark: #6a7ae3;
+    --secondary: #9c6cf5;
+    --success: #4ecb71;
+    --danger: #f56c6c;
+    --warning: #f5a623;
+    --shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+    --shadow-hover: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+body.night .topbar-phone {
+    background: #30304a;
+}
+
+body.night input,
+body.night select {
+    background: #2a2a45;
+    color: #e0e0e0;
+}
+
+body.night input:focus,
+body.night select:focus {
+    background: #30304a;
+}
+
+body.night .advanced-panel {
+    background: #2a2a45;
+}
+
+body.night .task-item.done {
+    background: #20203a;
+}
+
+body.night .task-item.expired {
+    background: #2d2025;
+}
+
+body.night .modal {
+    background: #252540;
+    color: #e0e0e0;
+}
+
+body.night .modal-overlay {
+    background: rgba(0, 0, 0, 0.7);
+}
+
+/* ─── 护眼+夜间模式 ──────────────────────────────────────── */
+
+body.eyecare.night {
+    --bg: #2a2520;
+    --card: #353028;
+    --text: #d4c8b8;
+    --text-light: #a89888;
+    --text-muted: #786858;
+    --border: #4a4035;
+    --primary: #c8a87c;
+    --primary-dark: #b89868;
+    --secondary: #d4a76a;
+    --success: #6ab04c;
+    --danger: #e74c3c;
+    --warning: #f39c12;
+    --shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+    --shadow-hover: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+body.eyecare.night .topbar-phone {
+    background: #3a3530;
+}
+
+body.eyecare.night input,
+body.eyecare.night select {
+    background: #302820;
+    color: #d4c8b8;
+}
+
+body.eyecare.night input:focus,
+body.eyecare.night select:focus {
+    background: #3a3530;
+}
+
+body.eyecare.night .advanced-panel {
+    background: #302820;
+}
+
+body.eyecare.night .task-item.done {
+    background: #252018;
+}
+
+body.eyecare.night .task-item.expired {
+    background: #2d2020;
+}
+
+body.eyecare.night .modal {
+    background: #353028;
+    color: #d4c8b8;
+}
+
+body.eyecare.night .modal-overlay {
+    background: rgba(0, 0, 0, 0.7);
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: var(--bg);
+    background-color: var(--bg);
     background-image:
         radial-gradient(ellipse at 20% 50%, rgba(102, 126, 234, 0.06) 0%, transparent 50%),
         radial-gradient(ellipse at 80% 20%, rgba(118, 75, 162, 0.06) 0%, transparent 50%),
@@ -31,10 +161,159 @@ body {
     color: var(--text);
     line-height: 1.6;
     min-height: 100vh;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 .container { max-width: 640px; margin: 0 auto; padding: 16px; }
 .hidden { display: none !important; }
+
+/* ─── 主题切换按钮 ────────────────────────────────────────── */
+
+.theme-switcher {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    gap: 8px;
+    z-index: 100;
+    background: var(--card);
+    padding: 8px;
+    border-radius: 30px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+}
+
+.theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    background: transparent;
+    color: var(--text-light);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s;
+    white-space: nowrap;
+}
+
+.theme-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.theme-btn.active {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.theme-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (max-width: 640px) {
+    .theme-switcher {
+        top: auto;
+        bottom: 20px;
+        right: 50%;
+        transform: translateX(50%);
+    }
+    .theme-btn span {
+        display: none;
+    }
+    .theme-btn {
+        padding: 10px;
+    }
+}
+
+/* ─── 励志名言页 ──────────────────────────────────────────── */
+
+.quote-wrapper {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.quote-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 48px 40px;
+    max-width: 560px;
+    width: 100%;
+    text-align: center;
+    box-shadow: var(--shadow);
+    border: 1px solid rgba(255,255,255,0.6);
+    animation: quoteAppear 0.5s ease-out;
+}
+
+@keyframes quoteAppear {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.quote-icon {
+    font-size: 56px;
+    margin-bottom: 24px;
+    animation: quotePulse 2s ease-in-out infinite;
+}
+
+@keyframes quotePulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.quote-text {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.6;
+    margin-bottom: 32px;
+    letter-spacing: 1px;
+}
+
+.quote-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--primary);
+    animation: dotBounce 1.4s ease-in-out infinite;
+}
+
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 480px) {
+    .quote-card {
+        padding: 36px 24px;
+    }
+    .quote-text {
+        font-size: 18px;
+    }
+}
 
 /* ─── 认证页面 ────────────────────────────────────────────── */
 
@@ -179,6 +458,8 @@ select {
     font-size: 13px; font-weight: 500; color: var(--text-muted);
     background: #f0f2f8; padding: 4px 10px; border-radius: 20px;
 }
+
+.topbar-right { display: flex; align-items: center; gap: 10px; }
 
 /* ─── 统计面板 ────────────────────────────────────────────── */
 

@@ -4,6 +4,35 @@ let sessionId = localStorage.getItem("session_id") || null;
 let currentPhone = localStorage.getItem("phone") || null;
 let deleteTargetId = null;
 
+// 主题状态：normal, eyecare, night, eyecare+night
+let currentTheme = localStorage.getItem("theme") || "normal";
+let eyecareEnabled = localStorage.getItem("eyecare") === "true";
+let nightEnabled = localStorage.getItem("night") === "true";
+
+// 励志名言
+const quotes = [
+    "天行健，君子以自强不息。",
+    "不积跬步，无以至千里；不积小流，无以成江海。",
+    "宝剑锋从磨砺出，梅花香自苦寒来。",
+    "千磨万击还坚劲，任尔东西南北风。",
+    "路漫漫其修远兮，吾将上下而求索。",
+    "长风破浪会有时，直挂云帆济沧海。",
+    "博观而约取，厚积而薄发。",
+    "古之立大事者，不惟有超世之才，亦必有坚忍不拔之志。",
+    "志不强者智不达，言不信者行不果。",
+    "锲而舍之，朽木不折；锲而不舍，金石可镂。",
+    "故不积跬步，无以至千里；不积小流，无以成江海。",
+    "业精于勤，荒于嬉；行成于思，毁于随。",
+    "黑发不知勤学早，白首方悔读书迟。",
+    "书山有路勤为径，学海无涯苦作舟。",
+    "少年易老学难成，一寸光阴不可轻。",
+    "纸上得来终觉浅，绝知此事要躬行。",
+    "生当作人杰，死亦为鬼雄。",
+    "会当凌绝顶，一览众山小。",
+    "欲穷千里目，更上一层楼。",
+    "海纳百川，有容乃大；壁立千仞，无欲则刚。"
+];
+
 // 分页状态：待办、已过期和已完成各自独立
 let pendingPage = 1;
 let expiredPage = 1;
@@ -28,6 +57,7 @@ const $ = (sel) => document.querySelector(sel);
 const viewLogin = $("#view-login");
 const viewRegister = $("#view-register");
 const viewMain = $("#view-main");
+const viewQuote = $("#view-quote");
 
 // ─── 初始化 ───────────────────────────────────────────────
 
@@ -41,6 +71,11 @@ document.addEventListener("DOMContentLoaded", () => {
     bindCategoryFilter();
     bindAdvancedToggle();
     bindStarRating();
+    bindThemeSwitcher();
+
+    // 应用保存的主题
+    applyTheme();
+    updateThemeButtons();
 
     if (sessionId) {
         checkSession();
@@ -55,6 +90,7 @@ function showView(name) {
     viewLogin.classList.toggle("hidden", name !== "login");
     viewRegister.classList.toggle("hidden", name !== "register");
     viewMain.classList.toggle("hidden", name !== "main");
+    viewQuote.classList.toggle("hidden", name !== "quote");
 }
 
 function bindNavigation() {
@@ -67,8 +103,22 @@ function bindNavigation() {
 async function api(path, options = {}) {
     const headers = { "Content-Type": "application/json", ...options.headers };
     if (sessionId) headers["X-Session-Id"] = sessionId;
-    const resp = await fetch(`/api${path}`, { ...options, headers });
-    return resp.json();
+    try {
+        const resp = await fetch(`/api${path}`, { ...options, headers });
+        if (resp.status === 401) {
+            // session 失效，清除本地状态，跳转登录页
+            sessionId = null;
+            currentPhone = null;
+            localStorage.removeItem("session_id");
+            localStorage.removeItem("phone");
+            showView("login");
+            return { success: false, message: "登录已过期，请重新登录" };
+        }
+        return await resp.json();
+    } catch (e) {
+        console.error("API 请求失败:", path, e);
+        return { success: false, message: "网络请求失败" };
+    }
 }
 
 // ─── Toast ────────────────────────────────────────────────
@@ -90,75 +140,88 @@ function bindForms() {
     // 登录
     $("#form-login").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const phone = $("#login-phone").value.trim();
-        const password = $("#login-password").value.trim();
-        const data = await api("/login", { method: "POST", body: JSON.stringify({ phone, password }) });
-        if (data.success) {
-            sessionId = data.data;
-            currentPhone = phone;
-            localStorage.setItem("session_id", sessionId);
-            localStorage.setItem("phone", phone);
-            showToast("登录成功，欢迎回来！", "success");
-            enterMainView();
-        } else {
-            showToast(data.message, "error");
+        try {
+            const phone = $("#login-phone").value.trim();
+            const password = $("#login-password").value.trim();
+            const data = await api("/login", { method: "POST", body: JSON.stringify({ phone, password }) });
+            if (data.success) {
+                sessionId = data.data;
+                currentPhone = phone;
+                localStorage.setItem("session_id", sessionId);
+                localStorage.setItem("phone", phone);
+                showToast("登录成功，欢迎回来！", "success");
+                // 显示励志名言，3秒后进入主界面
+                showRandomQuote();
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("登录请求失败", "error");
         }
     });
 
     // 注册
     $("#form-register").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const phone = $("#reg-phone").value.trim();
-        const password = $("#reg-password").value.trim();
-        const password2 = $("#reg-password2").value.trim();
-        if (password !== password2) { showToast("两次密码输入不一致", "error"); return; }
-        const data = await api("/register", { method: "POST", body: JSON.stringify({ phone, password }) });
-        if (data.success) {
-            showToast("注册成功，请登录！", "success");
-            showView("login");
-            $("#login-phone").value = phone;
-        } else {
-            showToast(data.message, "error");
+        try {
+            const phone = $("#reg-phone").value.trim();
+            const password = $("#reg-password").value.trim();
+            const password2 = $("#reg-password2").value.trim();
+            if (password !== password2) { showToast("两次密码输入不一致", "error"); return; }
+            const data = await api("/register", { method: "POST", body: JSON.stringify({ phone, password }) });
+            if (data.success) {
+                showToast("注册成功，请登录！", "success");
+                showView("login");
+                $("#login-phone").value = phone;
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("注册请求失败", "error");
         }
     });
 
     // 添加任务
     $("#form-add-task").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const title = $("#task-title").value.trim();
-        if (!title) return;
+        try {
+            const title = $("#task-title").value.trim();
+            if (!title) return;
 
-        const startDate = $("#task-start-date").value || "";
-        const deadline = $("#task-deadline").value || "";
+            const startDate = $("#task-start-date").value || "";
+            const deadline = $("#task-deadline").value || "";
 
-        if (startDate && deadline && new Date(startDate) > new Date(deadline)) {
-            showToast("开始日期不能晚于截止日期", "error");
-            return;
-        }
+            if (startDate && deadline && new Date(startDate) > new Date(deadline)) {
+                showToast("开始日期不能晚于截止日期", "error");
+                return;
+            }
 
-        const body = {
-            title,
-            description: $("#task-desc").value.trim(),
-            category: $("#task-category").value,
-            star_rating: parseInt($("#task-star-rating").value) || 0,
-            start_date: startDate,
-            deadline: deadline,
-        };
+            const body = {
+                title,
+                description: $("#task-desc").value.trim(),
+                category: $("#task-category").value,
+                star_rating: parseInt($("#task-star-rating").value) || 0,
+                start_date: startDate,
+                deadline: deadline,
+            };
 
-        const data = await api("/tasks", { method: "POST", body: JSON.stringify(body) });
-        if (data.success) {
-            $("#task-title").value = "";
-            $("#task-desc").value = "";
-            $("#task-category").value = "其他";
-            $("#task-star-rating").value = "0";
-            $("#task-start-date").value = "";
-            $("#task-deadline").value = "";
-            resetStarRating("star-rating-create");
-            showToast("任务添加成功！", "success");
-            pendingPage = 1;
-            loadAllData();
-        } else {
-            showToast(data.message, "error");
+            const data = await api("/tasks", { method: "POST", body: JSON.stringify(body) });
+            if (data.success) {
+                $("#task-title").value = "";
+                $("#task-desc").value = "";
+                $("#task-category").value = "其他";
+                $("#task-star-rating").value = "0";
+                $("#task-start-date").value = "";
+                $("#task-deadline").value = "";
+                resetStarRating("star-rating-create");
+                showToast("任务添加成功！", "success");
+                pendingPage = 1;
+                loadAllData();
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("添加任务失败", "error");
         }
     });
 }
@@ -167,7 +230,9 @@ function bindForms() {
 
 function bindLogout() {
     $("#btn-logout").addEventListener("click", async () => {
-        await api("/logout", { method: "POST" });
+        try {
+            await api("/logout", { method: "POST" });
+        } catch (e) { /* 忽略登出请求失败 */ }
         sessionId = null; currentPhone = null;
         localStorage.removeItem("session_id"); localStorage.removeItem("phone");
         showView("login");
@@ -185,12 +250,16 @@ function bindModal() {
     $("#modal-confirm").addEventListener("click", async () => {
         if (!deleteTargetId) return;
         $("#modal-overlay").classList.add("hidden");
-        const data = await api(`/tasks/${deleteTargetId}`, { method: "DELETE" });
-        if (data.success) {
-            showToast("任务已删除", "success");
-            loadAllData();
-        } else {
-            showToast(data.message, "error");
+        try {
+            const data = await api(`/tasks/${deleteTargetId}`, { method: "DELETE" });
+            if (data.success) {
+                showToast("任务已删除", "success");
+                loadAllData();
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("删除失败", "error");
         }
         deleteTargetId = null;
     });
@@ -288,11 +357,18 @@ function resetStarRating(containerId) {
 // ─── 会话检查 ─────────────────────────────────────────────
 
 async function checkSession() {
-    const data = await api("/session");
-    if (data.success) {
-        currentPhone = data.data;
-        enterMainView();
-    } else {
+    try {
+        const data = await api("/session");
+        if (data.success) {
+            currentPhone = data.data;
+            enterMainView();
+        } else {
+            sessionId = null;
+            localStorage.removeItem("session_id");
+            showView("login");
+        }
+    } catch (e) {
+        console.error("会话检查失败:", e);
         sessionId = null;
         localStorage.removeItem("session_id");
         showView("login");
@@ -301,96 +377,15 @@ async function checkSession() {
 
 function enterMainView() {
     showView("main");
-    $("#display-phone").textContent = currentPhone;
+    const phoneEl = $("#display-phone");
+    if (phoneEl) phoneEl.textContent = currentPhone;
     loadAllData();
 }
 
 // ─── 加载数据 ─────────────────────────────────────────────
 
 async function loadAllData() {
-    // 加载待办（第N页）
-    const pendingParams = buildQueryParams("pending");
-    const pendingData = await api(`/tasks?${pendingParams}`);
-
-    // 加载已完成（第N页）
-    const doneParams = buildQueryParams("done");
-    const doneData = await api(`/tasks?${doneParams}`);
-
-    // 加载全量统计（不带分页，只取计数）
-    const allParams = new URLSearchParams({
-        sort_by: "created",
-        category: currentCategory,
-        search: currentSearch,
-        page: 1,
-        per_page: 9999,
-    });
-    const allData = await api(`/tasks?${allParams}`);
-
-    if (allData.success) {
-        const allTasks = allData.data.items || [];
-        totalCount = allTasks.length;
-        pendingCount = allTasks.filter(t => !t.completed).length;
-        doneCount = allTasks.filter(t => t.completed).length;
-    }
-
-    // 更新统计
-    $("#stat-total").textContent = totalCount;
-    $("#stat-pending").textContent = pendingCount;
-    $("#stat-done").textContent = doneCount;
-    $("#badge-pending").textContent = pendingCount;
-    $("#badge-done").textContent = doneCount;
-
-    // 渲染待办列表
-    if (pendingData.success) {
-        const d = pendingData.data;
-        pendingTotalPages = d.total_pages;
-        renderTaskList("list-pending", "empty-pending", d.items, false, pendingCount);
-        renderPagination("pagination-pending", pendingPage, pendingTotalPages, "pending");
-    }
-
-    // 渲染已完成列表
-    if (doneData.success) {
-        const d = doneData.data;
-        doneTotalPages = d.total_pages;
-        renderTaskList("list-done", "empty-done", d.items, true, doneCount);
-        renderPagination("pagination-done", donePage, doneTotalPages, "done");
-    }
-
-    // 全空大提示
-    const grandEmpty = $("#grand-empty");
-    if (totalCount === 0 && !currentSearch && currentCategory === "全部") {
-        grandEmpty.classList.remove("hidden");
-    } else {
-        grandEmpty.classList.add("hidden");
-    }
-}
-
-function buildQueryParams(listType) {
-    const params = new URLSearchParams({
-        sort_by: currentSort,
-        category: currentCategory,
-        search: currentSearch,
-        per_page: perPage,
-    });
-
-    if (listType === "pending") {
-        params.set("page", pendingPage);
-        // 对于待办列表，需要在前端过滤（后端返回混合的，我们靠前端过滤）
-        // 但我们已经在后端加了分页，所以需要用一个技巧：加载全部然后前端过滤分页
-        // 实际上后端不区分已完成/未完成，所以我们先用大per_page，前端过滤后分页
-        params.set("per_page", 9999);
-    } else {
-        params.set("page", 1);
-        params.set("per_page", 9999);
-    }
-
-    return params.toString();
-}
-
-// 重新设计：后端不区分已完成/未完成，前端拿到全部后过滤分页
-// 为了避免每次请求太多数据，我们优化为一次请求全部，前端处理分页
-
-async function loadAllDataOptimized() {
+    try {
     const params = new URLSearchParams({
         sort_by: currentSort,
         category: currentCategory,
@@ -401,7 +396,6 @@ async function loadAllDataOptimized() {
 
     const data = await api(`/tasks?${params}`);
     if (!data.success) {
-        showToast(data.message, "error");
         return;
     }
 
@@ -451,10 +445,10 @@ async function loadAllDataOptimized() {
     } else {
         grandEmpty.classList.add("hidden");
     }
+    } catch (e) {
+        console.error("加载数据失败:", e);
+    }
 }
-
-// 覆盖 loadAllData
-var loadAllData = loadAllDataOptimized;
 
 function paginate(items, page, perPage) {
     const start = (page - 1) * perPage;
@@ -612,12 +606,16 @@ function goPage(listType, page) {
 // ─── 任务操作 ─────────────────────────────────────────────
 
 async function toggleTask(id) {
-    const data = await api(`/tasks/${id}/toggle`, { method: "POST" });
-    if (data.success) {
-        showToast(data.message, "success");
-        loadAllData();
-    } else {
-        showToast(data.message, "error");
+    try {
+        const data = await api(`/tasks/${id}/toggle`, { method: "POST" });
+        if (data.success) {
+            showToast(data.message, "success");
+            loadAllData();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("操作失败", "error");
     }
 }
 
@@ -632,11 +630,11 @@ function startEdit(id) {
     // 先从API获取最新数据
     const params = new URLSearchParams({ sort_by: "created", category: "全部", search: "", page: 1, per_page: 9999 });
     api(`/tasks?${params}`).then(data => {
-        if (!data.success) return;
+        if (!data || !data.success) return;
         const task = data.data.items.find(t => t.id === id);
         if (!task) return;
         startEditWithTask(task);
-    });
+    }).catch(() => {});
 }
 
 function startEditWithTask(task) {
@@ -706,32 +704,36 @@ function clickEditStar(taskId, val) {
 }
 
 async function saveEdit(id) {
-    const title = $(`#edit-title-${id}`).value.trim();
-    if (!title) { showToast("任务标题不能为空", "error"); return; }
+    try {
+        const title = $(`#edit-title-${id}`).value.trim();
+        if (!title) { showToast("任务标题不能为空", "error"); return; }
 
-    const startDate = $(`#edit-start-${id}`).value || "";
-    const deadline = $(`#edit-deadline-${id}`).value || "";
+        const startDate = $(`#edit-start-${id}`).value || "";
+        const deadline = $(`#edit-deadline-${id}`).value || "";
 
-    if (startDate && deadline && new Date(startDate) > new Date(deadline)) {
-        showToast("开始日期不能晚于截止日期", "error");
-        return;
-    }
+        if (startDate && deadline && new Date(startDate) > new Date(deadline)) {
+            showToast("开始日期不能晚于截止日期", "error");
+            return;
+        }
 
-    const body = {
-        title,
-        description: $(`#edit-desc-${id}`).value.trim(),
-        category: $(`#edit-category-${id}`).value,
-        star_rating: parseInt($(`#edit-star-${id}`).value) || 0,
-        start_date: startDate,
-        deadline: deadline,
-    };
+        const body = {
+            title,
+            description: $(`#edit-desc-${id}`).value.trim(),
+            category: $(`#edit-category-${id}`).value,
+            star_rating: parseInt($(`#edit-star-${id}`).value) || 0,
+            start_date: startDate,
+            deadline: deadline,
+        };
 
-    const data = await api(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(body) });
-    if (data.success) {
-        showToast("任务已更新", "success");
-        loadAllData();
-    } else {
-        showToast(data.message, "error");
+        const data = await api(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(body) });
+        if (data.success) {
+            showToast("任务已更新", "success");
+            loadAllData();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("保存失败", "error");
     }
 }
 
@@ -772,4 +774,86 @@ function isDeadlineUrgent(deadline) {
     } catch {
         return false;
     }
+}
+
+// ─── 主题切换 ─────────────────────────────────────────────
+
+function bindThemeSwitcher() {
+    document.querySelectorAll(".theme-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const theme = btn.dataset.theme;
+            toggleTheme(theme);
+        });
+    });
+}
+
+function toggleTheme(theme) {
+    if (theme === "normal") {
+        // 普通模式：关闭护眼和夜间
+        eyecareEnabled = false;
+        nightEnabled = false;
+    } else if (theme === "eyecare") {
+        // 护眼模式：切换护眼
+        eyecareEnabled = !eyecareEnabled;
+    } else if (theme === "night") {
+        // 夜间模式：切换夜间（如果护眼开启则切换为护眼+夜间）
+        nightEnabled = !nightEnabled;
+    }
+
+    // 保存状态
+    localStorage.setItem("eyecare", eyecareEnabled);
+    localStorage.setItem("night", nightEnabled);
+
+    applyTheme();
+    updateThemeButtons();
+}
+
+function applyTheme() {
+    const body = document.body;
+    body.classList.remove("eyecare", "night");
+
+    if (eyecareEnabled && nightEnabled) {
+        body.classList.add("eyecare", "night");
+        currentTheme = "eyecare-night";
+    } else if (eyecareEnabled) {
+        body.classList.add("eyecare");
+        currentTheme = "eyecare";
+    } else if (nightEnabled) {
+        body.classList.add("night");
+        currentTheme = "night";
+    } else {
+        currentTheme = "normal";
+    }
+
+    localStorage.setItem("theme", currentTheme);
+}
+
+function updateThemeButtons() {
+    document.querySelectorAll(".theme-btn").forEach(btn => {
+        const theme = btn.dataset.theme;
+        btn.classList.remove("active");
+
+        if (theme === "normal" && !eyecareEnabled && !nightEnabled) {
+            btn.classList.add("active");
+        } else if (theme === "eyecare" && eyecareEnabled) {
+            btn.classList.add("active");
+        } else if (theme === "night" && nightEnabled) {
+            btn.classList.add("active");
+        }
+    });
+}
+
+// ─── 励志名言展示 ─────────────────────────────────────────
+
+function showRandomQuote() {
+    const quoteText = $("#quote-text");
+    const randomIndex = Math.floor(Math.random() * quotes.length);
+    quoteText.textContent = quotes[randomIndex];
+
+    showView("quote");
+
+    // 3秒后进入主界面
+    setTimeout(() => {
+        enterMainView();
+    }, 3000);
 }
