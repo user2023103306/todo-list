@@ -459,7 +459,7 @@ select {
     background: #f0f2f8; padding: 4px 10px; border-radius: 20px;
 }
 
-.topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ─── 统计面板 ────────────────────────────────────────────── */
 
@@ -914,6 +914,8 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     .stats-row { gap: 8px; }
     .stat-num { font-size: 20px; }
     .topbar-brand { display: none; }
+    .topbar-right { gap: 4px; }
+    .topbar-right .btn { padding: 6px 8px; font-size: 11px; }
     .adv-row { flex-direction: column; gap: 8px; }
     .sort-tabs { gap: 4px; }
     .sort-tab { padding: 6px 10px; font-size: 12px; }

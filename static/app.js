@@ -74,6 +74,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindThemeSwitcher();
     bindGenerator();
     bindCheckin();
+    bindExportImport();
 
     // 应用保存的主题
     applyTheme();
@@ -1109,4 +1110,69 @@ async function doCheckin() {
     } catch (err) {
         showToast("签到失败", "error");
     }
+}
+
+// ─── 数据导出/导入 ─────────────────────────────────────────
+
+function bindExportImport() {
+    // 导出
+    $("#btn-export").addEventListener("click", async () => {
+        try {
+            const headers = { "X-Session-Id": sessionId };
+            const resp = await fetch("/api/export", { headers });
+            if (resp.status === 401) {
+                showToast("请先登录", "error");
+                return;
+            }
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `taskflow_backup_${new Date().toISOString().slice(0,10)}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast("数据导出成功！", "success");
+        } catch (err) {
+            showToast("导出失败", "error");
+        }
+    });
+
+    // 导入
+    $("#import-file").addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!file.name.endsWith(".zip")) {
+            showToast("请选择.zip文件", "error");
+            return;
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const resp = await fetch("/api/import", {
+                method: "POST",
+                headers: { "X-Session-Id": sessionId },
+                body: formData,
+            });
+
+            const data = await resp.json();
+            if (data.success) {
+                showToast(data.message, "success");
+                loadAllData();
+                loadTemplates();
+                loadCheckinStatus();
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("导入失败", "error");
+        }
+
+        // 清空input，允许重复选择同一文件
+        e.target.value = "";
+    });
 }

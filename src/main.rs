@@ -1,7 +1,8 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    body::Body,
+    extract::{Multipart, Path, Query, State},
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -9,10 +10,12 @@ use chrono::{Datelike, Duration, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, io::Write, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 use uuid::Uuid;
+use zip::write::SimpleFileOptions;
+use zip::read::ZipArchive;
 
 // ─── 数据模型 ───────────────────────────────────────────────
 
@@ -861,6 +864,170 @@ async fn checkin(
     }
 }
 
+// ─── 数据导出 ───────────────────────────────────────────────
+
+async fn export_data(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    // 验证登录
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r).into_response(),
+    };
+
+    // 收集该用户的所有相关文件
+    let files_to_export = vec![
+        state.user_tasks_path(&phone),
+        state.templates_path(&phone),
+        state.checkin_path(&phone),
+    ];
+
+    let mut zip_buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut zip_buf);
+        let options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        for file_path in &files_to_export {
+            if file_path.exists() {
+                let file_name = file_path.file_name().unwrap().to_str().unwrap();
+                if let Ok(content) = fs::read(file_path) {
+                    let _ = zip.start_file(format!("data/{}", file_name), options);
+                    let _ = zip.write_all(&content);
+                }
+            }
+        }
+
+        // 也导出users.json中该用户的记录
+        let users = state.read_users();
+        if let Some(hash) = users.get(&phone) {
+            let user_data = serde_json::json!({ phone: hash });
+            let _ = zip.start_file("users.json", options);
+            let _ = zip.write_all(user_data.to_string().as_bytes());
+        }
+
+        let _ = zip.finish();
+    }
+
+    let zip_bytes = zip_buf.into_inner();
+    let filename = format!("taskflow_backup_{}.zip", Local::now().format("%Y%m%d_%H%M%S"));
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename))
+        .body(Body::from(zip_bytes))
+        .unwrap()
+}
+
+// ─── 数据导入 ───────────────────────────────────────────────
+
+async fn import_data(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    // 验证登录
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+
+    // 获取上传的文件
+    let mut zip_data: Option<Vec<u8>> = None;
+    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+        if let Some(name) = field.name() {
+            if name == "file" {
+                if let Ok(data) = field.bytes().await {
+                    zip_data = Some(data.to_vec());
+                }
+            }
+        }
+    }
+
+    let zip_data = match zip_data {
+        Some(d) => d,
+        None => return (StatusCode::BAD_REQUEST, err("未找到上传文件")),
+    };
+
+    // 解压并合并数据
+    let cursor = std::io::Cursor::new(zip_data);
+    let mut archive = match ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(_) => return (StatusCode::BAD_REQUEST, err("无效的zip文件")),
+    };
+
+    let mut imported_tasks = false;
+    let mut imported_templates = false;
+    let mut imported_checkin = false;
+
+    for i in 0..archive.len() {
+        let mut file = match archive.by_index(i) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+
+        let name = file.name().to_string();
+        let mut content = Vec::new();
+        if std::io::Read::read_to_end(&mut file, &mut content).is_err() {
+            continue;
+        }
+
+        if name.ends_with("_templates.json") || name.contains("templates") {
+            // 合并模板
+            if let Ok(imported) = serde_json::from_slice::<Vec<TaskTemplate>>(&content) {
+                let mut existing = state.read_templates(&phone);
+                for tmpl in imported {
+                    if !existing.iter().any(|t| t.id == tmpl.id) {
+                        existing.push(tmpl);
+                    }
+                }
+                let _ = state.write_templates(&phone, &existing);
+                imported_templates = true;
+            }
+        } else if name.ends_with("_checkin.json") || name.contains("checkin") {
+            // 合并签到数据（取较新的）
+            if let Ok(imported) = serde_json::from_slice::<CheckinData>(&content) {
+                let mut existing = state.read_checkin(&phone);
+                if imported.last_checkin_date > existing.last_checkin_date {
+                    existing.last_checkin_date = imported.last_checkin_date;
+                }
+                if imported.max_streak > existing.max_streak {
+                    existing.max_streak = imported.max_streak;
+                }
+                if imported.current_streak > existing.current_streak {
+                    existing.current_streak = imported.current_streak;
+                }
+                let _ = state.write_checkin(&phone, &existing);
+                imported_checkin = true;
+            }
+        } else if name.ends_with(".json") && !name.contains("users") {
+            // 合并任务
+            if let Ok(imported) = serde_json::from_slice::<Vec<Task>>(&content) {
+                let mut existing = state.read_tasks(&phone);
+                for task in imported {
+                    if !existing.iter().any(|t| t.id == task.id) {
+                        existing.push(task);
+                    }
+                }
+                let _ = state.write_tasks(&phone, &existing);
+                imported_tasks = true;
+            }
+        }
+    }
+
+    let mut msg = String::from("导入完成：");
+    if imported_tasks { msg.push_str("任务 "); }
+    if imported_templates { msg.push_str("模板 "); }
+    if imported_checkin { msg.push_str("签到 "); }
+    if !imported_tasks && !imported_templates && !imported_checkin {
+        msg = "未找到可导入的数据".to_string();
+    }
+
+    (StatusCode::OK, ok(&msg, ()))
+}
+
 // ─── 主函数 ─────────────────────────────────────────────────
 
 #[tokio::main]
@@ -879,7 +1046,9 @@ async fn main() {
         .route("/templates/{id}", delete(delete_template))
         .route("/templates/generate", post(generate_tasks))
         .route("/checkin", post(checkin))
-        .route("/checkin/status", get(checkin_status));
+        .route("/checkin/status", get(checkin_status))
+        .route("/export", get(export_data))
+        .route("/import", post(import_data));
 
     let app = Router::new()
         .nest("/api", api_routes)
