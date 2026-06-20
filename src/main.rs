@@ -2,10 +2,10 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
-use chrono::{Duration, Local, NaiveDateTime};
+use chrono::{Datelike, Duration, Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -66,6 +66,62 @@ struct UpdateTaskRequest {
     star_rating: Option<u8>,
     start_date: Option<String>,
     deadline: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct TaskTemplate {
+    id: String,
+    title: String,
+    description: String,
+    category: String,
+    star_rating: u8,
+    frequency: String,        // "monthly", "weekly", "daily"
+    generate_day: u8,         // 月：1-31，周：1-7（周一到周日），日：0
+    generate_time: String,    // "09:00"
+    deadline_day: u8,         // 同上
+    deadline_time: String,    // "18:00"
+    created_at: String,
+    last_generated: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTemplateRequest {
+    title: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default = "default_category")]
+    category: String,
+    #[serde(default)]
+    star_rating: u8,
+    frequency: String,
+    #[serde(default)]
+    generate_day: u8,
+    #[serde(default = "default_generate_time")]
+    generate_time: String,
+    #[serde(default)]
+    deadline_day: u8,
+    #[serde(default = "default_deadline_time")]
+    deadline_time: String,
+}
+
+fn default_generate_time() -> String { "09:00".to_string() }
+fn default_deadline_time() -> String { "18:00".to_string() }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct CheckinData {
+    last_checkin_date: String,
+    current_streak: u32,
+    max_streak: u32,
+}
+
+impl Default for CheckinData {
+    fn default() -> Self {
+        Self {
+            last_checkin_date: String::new(),
+            current_streak: 0,
+            max_streak: 0,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,6 +227,46 @@ impl AppState {
     fn write_tasks(&self, phone: &str, tasks: &[Task]) -> Result<(), String> {
         let path = self.user_tasks_path(phone);
         let json = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
+        fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    fn templates_path(&self, phone: &str) -> PathBuf {
+        self.data_dir.join(format!("{phone}_templates.json"))
+    }
+
+    fn read_templates(&self, phone: &str) -> Vec<TaskTemplate> {
+        let path = self.templates_path(phone);
+        if path.exists() {
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn write_templates(&self, phone: &str, templates: &[TaskTemplate]) -> Result<(), String> {
+        let path = self.templates_path(phone);
+        let json = serde_json::to_string_pretty(templates).map_err(|e| e.to_string())?;
+        fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    fn checkin_path(&self, phone: &str) -> PathBuf {
+        self.data_dir.join(format!("{phone}_checkin.json"))
+    }
+
+    fn read_checkin(&self, phone: &str) -> CheckinData {
+        let path = self.checkin_path(phone);
+        if path.exists() {
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            CheckinData::default()
+        }
+    }
+
+    fn write_checkin(&self, phone: &str, data: &CheckinData) -> Result<(), String> {
+        let path = self.checkin_path(phone);
+        let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
         fs::write(path, json).map_err(|e| e.to_string())
     }
 }
@@ -461,6 +557,310 @@ async fn delete_task(
     }
 }
 
+// ─── 任务模板 ───────────────────────────────────────────────
+
+async fn create_template(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateTemplateRequest>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let title = req.title.trim().to_string();
+    if title.is_empty() {
+        return (StatusCode::BAD_REQUEST, err("任务标题不能为空"));
+    }
+    if !["monthly", "weekly", "daily"].contains(&req.frequency.as_str()) {
+        return (StatusCode::BAD_REQUEST, err("频率必须为 monthly/weekly/daily"));
+    }
+    let template = TaskTemplate {
+        id: Uuid::new_v4().to_string(),
+        title,
+        description: req.description.trim().to_string(),
+        category: if req.category.is_empty() { "其他".to_string() } else { req.category },
+        star_rating: req.star_rating.min(5),
+        frequency: req.frequency,
+        generate_day: req.generate_day,
+        generate_time: req.generate_time,
+        deadline_day: req.deadline_day,
+        deadline_time: req.deadline_time,
+        created_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        last_generated: None,
+    };
+    let mut templates = state.read_templates(&phone);
+    templates.push(template.clone());
+    match state.write_templates(&phone, &templates) {
+        Ok(_) => (StatusCode::CREATED, ok("模板创建成功", template)),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("创建失败: {e}"))),
+    }
+}
+
+async fn list_templates(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let templates = state.read_templates(&phone);
+    (StatusCode::OK, ok("获取成功", templates))
+}
+
+async fn delete_template(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Path(template_id): Path<String>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let mut templates = state.read_templates(&phone);
+    let before = templates.len();
+    templates.retain(|t| t.id != template_id);
+    if templates.len() == before {
+        return (StatusCode::NOT_FOUND, err("模板不存在"));
+    }
+    match state.write_templates(&phone, &templates) {
+        Ok(_) => (StatusCode::OK, ok("模板已删除", ())),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+    }
+}
+
+/// 获取某月的最后一天
+fn last_day_of_month(year: i32, month: u32) -> u32 {
+    if month == 12 {
+        31
+    } else {
+        NaiveDateTime::parse_from_str(
+            &format!("{:04}-{:02}-01 00:00:00", year, month + 1),
+            "%Y-%m-%d %H:%M:%S",
+        )
+        .map(|dt| (dt - Duration::days(1)).day())
+        .unwrap_or(30)
+    }
+}
+
+/// 将用户输入的1-7（周一到周日）转换为chrono::Weekday
+fn weekday_from_day(day: u8) -> chrono::Weekday {
+    match day {
+        1 => chrono::Weekday::Mon,
+        2 => chrono::Weekday::Tue,
+        3 => chrono::Weekday::Wed,
+        4 => chrono::Weekday::Thu,
+        5 => chrono::Weekday::Fri,
+        6 => chrono::Weekday::Sat,
+        _ => chrono::Weekday::Sun, // 7 或其他
+    }
+}
+
+/// 计算某个日期所在周的指定星期几的日期
+fn weekday_of_same_week(base_date: chrono::NaiveDate, target_weekday: chrono::Weekday) -> chrono::NaiveDate {
+    let base_weekday = base_date.weekday();
+    let base_num = base_weekday.num_days_from_monday();
+    let target_num = target_weekday.num_days_from_monday();
+    let diff = target_num as i32 - base_num as i32;
+    base_date + Duration::days(diff as i64)
+}
+
+async fn generate_tasks(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+
+    let now = Local::now();
+    let today = now.date_naive();
+
+    let mut templates = state.read_templates(&phone);
+    let mut tasks = state.read_tasks(&phone);
+    let mut generated_count = 0;
+    let mut changed = false;
+
+    for tmpl in templates.iter_mut() {
+        match tmpl.frequency.as_str() {
+            "daily" => {
+                let gen_date_str = today.format("%Y-%m-%d").to_string();
+                let gen_datetime = format!("{} {}", gen_date_str, tmpl.generate_time);
+                let should_generate = now.format("%Y-%m-%d %H:%M").to_string() >= gen_datetime
+                    && tmpl.last_generated.as_deref() != Some(&gen_date_str);
+
+                if should_generate {
+                    let deadline = format!("{} {}", gen_date_str, tmpl.deadline_time);
+                    let task = Task {
+                        id: Uuid::new_v4().to_string(),
+                        title: tmpl.title.clone(),
+                        description: tmpl.description.clone(),
+                        completed: false,
+                        category: tmpl.category.clone(),
+                        star_rating: tmpl.star_rating,
+                        start_date: gen_datetime,
+                        deadline,
+                        created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    };
+                    tasks.push(task);
+                    tmpl.last_generated = Some(gen_date_str);
+                    generated_count += 1;
+                    changed = true;
+                }
+            }
+            "weekly" => {
+                let gen_weekday = weekday_from_day(tmpl.generate_day);
+                let dl_weekday = weekday_from_day(tmpl.deadline_day);
+
+                // 找到本周的生成日
+                let gen_date = weekday_of_same_week(today, gen_weekday);
+                // 如果截止日 < 生成日，截止日算下周
+                let mut dl_date = weekday_of_same_week(today, dl_weekday);
+                if dl_date <= gen_date {
+                    dl_date = dl_date + Duration::weeks(1);
+                }
+
+                let gen_date_str = gen_date.format("%Y-%m-%d").to_string();
+                let gen_datetime = format!("{} {}", gen_date_str, tmpl.generate_time);
+
+                let should_generate = now.format("%Y-%m-%d %H:%M").to_string() >= gen_datetime
+                    && tmpl.last_generated.as_deref() != Some(&gen_date_str);
+
+                if should_generate {
+                    let deadline = format!("{} {}", dl_date.format("%Y-%m-%d"), tmpl.deadline_time);
+                    let task = Task {
+                        id: Uuid::new_v4().to_string(),
+                        title: tmpl.title.clone(),
+                        description: tmpl.description.clone(),
+                        completed: false,
+                        category: tmpl.category.clone(),
+                        star_rating: tmpl.star_rating,
+                        start_date: gen_datetime,
+                        deadline,
+                        created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    };
+                    tasks.push(task);
+                    tmpl.last_generated = Some(gen_date_str);
+                    generated_count += 1;
+                    changed = true;
+                }
+            }
+            "monthly" => {
+                let year = today.year();
+                let month = today.month();
+
+                // 调整生成日（如果当月没有那么多天）
+                let max_day = last_day_of_month(year, month) as u8;
+                let gen_day = tmpl.generate_day.min(max_day);
+                let dl_max_day = last_day_of_month(year, month) as u8;
+                let dl_day = tmpl.deadline_day.min(dl_max_day);
+
+                // 如果截止日 < 生成日，本月不生成
+                if dl_day < gen_day {
+                    continue;
+                }
+
+                let gen_date = chrono::NaiveDate::from_ymd_opt(year, month, gen_day as u32).unwrap_or(today);
+                let gen_date_str = gen_date.format("%Y-%m-%d").to_string();
+                let gen_datetime = format!("{} {}", gen_date_str, tmpl.generate_time);
+
+                let should_generate = now.format("%Y-%m-%d %H:%M").to_string() >= gen_datetime
+                    && tmpl.last_generated.as_deref() != Some(&gen_date_str);
+
+                if should_generate {
+                    let dl_date = chrono::NaiveDate::from_ymd_opt(year, month, dl_day as u32).unwrap_or(today);
+                    let deadline = format!("{} {}", dl_date.format("%Y-%m-%d"), tmpl.deadline_time);
+                    let task = Task {
+                        id: Uuid::new_v4().to_string(),
+                        title: tmpl.title.clone(),
+                        description: tmpl.description.clone(),
+                        completed: false,
+                        category: tmpl.category.clone(),
+                        star_rating: tmpl.star_rating,
+                        start_date: gen_datetime,
+                        deadline,
+                        created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    };
+                    tasks.push(task);
+                    tmpl.last_generated = Some(gen_date_str);
+                    generated_count += 1;
+                    changed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if changed {
+        let _ = state.write_templates(&phone, &templates);
+        let _ = state.write_tasks(&phone, &tasks);
+    }
+
+    (StatusCode::OK, ok(&format!("生成了{}个任务", generated_count), generated_count))
+}
+
+// ─── 每日打卡 ───────────────────────────────────────────────
+
+async fn checkin_status(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let data = state.read_checkin(&phone);
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let checked_in_today = data.last_checkin_date == today;
+    (StatusCode::OK, ok("获取成功", serde_json::json!({
+        "current_streak": data.current_streak,
+        "max_streak": data.max_streak,
+        "checked_in_today": checked_in_today
+    })))
+}
+
+async fn checkin(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let yesterday = (Local::now() - Duration::days(1)).format("%Y-%m-%d").to_string();
+
+    let mut data = state.read_checkin(&phone);
+
+    if data.last_checkin_date == today {
+        return (StatusCode::BAD_REQUEST, err("今日已签到"));
+    }
+
+    if data.last_checkin_date == yesterday {
+        // 连续签到
+        data.current_streak += 1;
+    } else {
+        // 断签，重新开始
+        data.current_streak = 1;
+    }
+
+    if data.current_streak > data.max_streak {
+        data.max_streak = data.current_streak;
+    }
+
+    data.last_checkin_date = today;
+
+    match state.write_checkin(&phone, &data) {
+        Ok(_) => (StatusCode::OK, ok("签到成功", serde_json::json!({
+            "current_streak": data.current_streak,
+            "max_streak": data.max_streak
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("签到失败: {e}"))),
+    }
+}
+
 // ─── 主函数 ─────────────────────────────────────────────────
 
 #[tokio::main]
@@ -474,7 +874,12 @@ async fn main() {
         .route("/session", get(check_session))
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/{id}", put(update_task).delete(delete_task))
-        .route("/tasks/{id}/toggle", post(toggle_task));
+        .route("/tasks/{id}/toggle", post(toggle_task))
+        .route("/templates", get(list_templates).post(create_template))
+        .route("/templates/{id}", delete(delete_template))
+        .route("/templates/generate", post(generate_tasks))
+        .route("/checkin", post(checkin))
+        .route("/checkin/status", get(checkin_status));
 
     let app = Router::new()
         .nest("/api", api_routes)

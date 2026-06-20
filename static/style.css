@@ -489,7 +489,7 @@ select {
 #form-add-task { display: flex; flex-direction: column; gap: 10px; }
 .add-task-row { display: flex; gap: 8px; }
 .add-task-row input[type="text"] { flex: 1; }
-.add-task-row .btn { flex-shrink: 0; }
+.add-task-row .btn { flex-shrink: 0; white-space: nowrap; }
 .desc-input { font-size: 14px !important; }
 
 .chevron-icon { transition: transform 0.25s; }
@@ -787,6 +787,119 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 .modal-actions { display: flex; gap: 12px; justify-content: center; }
 .modal-actions .btn { flex: 1; max-width: 130px; }
 
+/* ─── 每日打卡 ────────────────────────────────────────────── */
+
+.checkin-card { padding: 14px 16px; }
+
+.checkin-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+
+.checkin-info {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+
+.checkin-label {
+    font-size: 14px; font-weight: 600; color: var(--text);
+}
+
+.checkin-streak {
+    font-size: 13px; color: var(--primary); font-weight: 500;
+}
+
+.checkin-max {
+    font-size: 13px; color: var(--text-muted); font-weight: 500;
+}
+
+#btn-checkin.checked {
+    background: var(--success);
+    border-color: var(--success);
+    cursor: default;
+    opacity: 0.8;
+}
+
+.checkin-quote {
+    margin-top: 12px;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-light);
+    line-height: 1.6;
+    border-left: 3px solid var(--primary);
+}
+
+.checkin-quote.milestone {
+    background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(231, 76, 60, 0.05));
+    border-left-color: var(--warning);
+    font-weight: 500;
+}
+
+/* ─── 自动生成弹窗 ───────────────────────────────────────── */
+
+.generator-modal {
+    max-width: 460px; text-align: left;
+    max-height: 90vh; overflow-y: auto;
+}
+
+.generator-tabs {
+    display: flex; gap: 8px; margin-bottom: 20px;
+}
+
+.gen-tab {
+    flex: 1; padding: 10px 16px;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--text-light);
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: all 0.2s;
+}
+
+.gen-tab:hover { border-color: var(--primary); color: var(--primary); }
+
+.gen-tab.active {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff; border-color: transparent;
+}
+
+.gen-freq-panel {
+    margin-bottom: 16px;
+}
+
+.generator-tip {
+    font-size: 12px; color: var(--warning); background: rgba(243, 156, 18, 0.1);
+    padding: 10px 12px; border-radius: 8px; margin: 16px 0;
+    line-height: 1.5;
+}
+
+/* ─── 模板列表项 ──────────────────────────────────────────── */
+
+.template-item {
+    background: var(--card); border-radius: var(--radius-sm);
+    padding: 12px 16px; box-shadow: var(--shadow);
+    display: flex; align-items: center; gap: 12px;
+    transition: all 0.25s;
+    border: 1px solid rgba(255,255,255,0.6);
+    border-left: 4px solid var(--warning);
+}
+
+.template-item:hover { box-shadow: var(--shadow-hover); }
+
+.template-body { flex: 1; min-width: 0; }
+.template-title { font-size: 14px; font-weight: 600; }
+.template-meta {
+    display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-muted);
+}
+
+.template-freq {
+    font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(243, 156, 18, 0.1); color: var(--warning);
+}
+
+.template-actions { flex-shrink: 0; }
+.template-actions .btn { padding: 5px 8px; font-size: 12px; min-height: 30px; }
+
 /* ─── 响应式 ──────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
@@ -804,6 +917,9 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     .adv-row { flex-direction: column; gap: 8px; }
     .sort-tabs { gap: 4px; }
     .sort-tab { padding: 6px 10px; font-size: 12px; }
+    .checkin-row { flex-direction: column; align-items: flex-start; }
+    .checkin-info { gap: 8px; }
+    .generator-modal { max-width: 100%; }
 }
 
 @media (min-width: 768px) {

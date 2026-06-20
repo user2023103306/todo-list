@@ -72,6 +72,8 @@ document.addEventListener("DOMContentLoaded", () => {
     bindAdvancedToggle();
     bindStarRating();
     bindThemeSwitcher();
+    bindGenerator();
+    bindCheckin();
 
     // 应用保存的主题
     applyTheme();
@@ -379,7 +381,12 @@ function enterMainView() {
     showView("main");
     const phoneEl = $("#display-phone");
     if (phoneEl) phoneEl.textContent = currentPhone;
-    loadAllData();
+    // 先生成任务，再加载数据
+    generateTasks().then(() => {
+        loadAllData();
+        loadTemplates();
+        loadCheckinStatus();
+    });
 }
 
 // ─── 加载数据 ─────────────────────────────────────────────
@@ -856,4 +863,250 @@ function showRandomQuote() {
     setTimeout(() => {
         enterMainView();
     }, 3000);
+}
+
+// ─── 自动生成器 ───────────────────────────────────────────
+
+function bindGenerator() {
+    // 打开弹窗
+    $("#btn-generator").addEventListener("click", () => {
+        $("#generator-overlay").classList.remove("hidden");
+    });
+
+    // 关闭弹窗
+    $("#generator-cancel").addEventListener("click", () => {
+        $("#generator-overlay").classList.add("hidden");
+        resetGeneratorForm();
+    });
+
+    // 频率标签切换
+    document.querySelectorAll(".gen-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            document.querySelectorAll(".gen-tab").forEach(t => t.classList.remove("active"));
+            tab.classList.add("active");
+            const freq = tab.dataset.freq;
+            document.querySelectorAll(".gen-freq-panel").forEach(p => p.classList.add("hidden"));
+            $(`#gen-${freq}-panel`).classList.remove("hidden");
+        });
+    });
+
+    // 生成器星级评分
+    setupStarGroup("star-rating-gen", "gen-star-rating");
+
+    // 提交表单
+    $("#form-generator").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await createTemplate();
+    });
+}
+
+function resetGeneratorForm() {
+    $("#form-generator").reset();
+    $("#gen-star-rating").value = "0";
+    resetStarRating("star-rating-gen");
+    // 重置为按日标签
+    document.querySelectorAll(".gen-tab").forEach(t => t.classList.remove("active"));
+    document.querySelector('.gen-tab[data-freq="daily"]').classList.add("active");
+    document.querySelectorAll(".gen-freq-panel").forEach(p => p.classList.add("hidden"));
+    $("#gen-daily-panel").classList.remove("hidden");
+}
+
+async function createTemplate() {
+    const title = $("#gen-title").value.trim();
+    if (!title) { showToast("任务标题不能为空", "error"); return; }
+
+    const activeTab = document.querySelector(".gen-tab.active");
+    const freq = activeTab.dataset.freq;
+
+    let body = {
+        title,
+        description: $("#gen-desc").value.trim(),
+        category: $("#gen-category").value,
+        star_rating: parseInt($("#gen-star-rating").value) || 0,
+        frequency: freq,
+    };
+
+    if (freq === "daily") {
+        body.generate_day = 0;
+        body.generate_time = $("#gen-daily-time").value || "09:00";
+        body.deadline_day = 0;
+        body.deadline_time = $("#gen-daily-deadline").value || "18:00";
+    } else if (freq === "weekly") {
+        body.generate_day = parseInt($("#gen-weekly-day").value);
+        body.generate_time = $("#gen-weekly-time").value || "09:00";
+        body.deadline_day = parseInt($("#gen-weekly-deadline-day").value);
+        body.deadline_time = $("#gen-weekly-deadline-time").value || "18:00";
+    } else {
+        body.generate_day = parseInt($("#gen-monthly-day").value);
+        body.generate_time = $("#gen-monthly-time").value || "09:00";
+        body.deadline_day = parseInt($("#gen-monthly-deadline-day").value);
+        body.deadline_time = $("#gen-monthly-deadline-time").value || "18:00";
+    }
+
+    try {
+        const data = await api("/templates", { method: "POST", body: JSON.stringify(body) });
+        if (data.success) {
+            showToast("模板创建成功！任务将按规则自动生成", "success");
+            $("#generator-overlay").classList.add("hidden");
+            resetGeneratorForm();
+            loadTemplates();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("创建失败", "error");
+    }
+}
+
+async function loadTemplates() {
+    try {
+        const data = await api("/templates");
+        if (!data.success) return;
+
+        const templates = data.data || [];
+        const listEl = $("#list-templates");
+        const emptyEl = $("#empty-templates");
+        const badgeEl = $("#badge-templates");
+
+        badgeEl.textContent = templates.length;
+
+        if (templates.length === 0) {
+            listEl.innerHTML = "";
+            emptyEl.classList.remove("hidden");
+            return;
+        }
+
+        emptyEl.classList.add("hidden");
+
+        const freqLabels = { daily: "按日", weekly: "按周", monthly: "按月" };
+        const dayLabels = { 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日" };
+
+        listEl.innerHTML = templates.map(t => {
+            let freqDetail = "";
+            if (t.frequency === "daily") {
+                freqDetail = `每天 ${t.generate_time}`;
+            } else if (t.frequency === "weekly") {
+                freqDetail = `每${dayLabels[t.generate_day] || ""} ${t.generate_time}`;
+            } else {
+                freqDetail = `每月${t.generate_day}号 ${t.generate_time}`;
+            }
+
+            return `
+            <div class="template-item" data-id="${t.id}">
+                <div class="template-body">
+                    <div class="template-title">${esc(t.title)}</div>
+                    <div class="template-meta">
+                        <span class="template-freq">${freqLabels[t.frequency] || t.frequency}</span>
+                        <span>${freqDetail}</span>
+                        <span>分类: ${esc(t.category)}</span>
+                        ${t.star_rating > 0 ? `<span>重要: ${"★".repeat(t.star_rating)}</span>` : ""}
+                    </div>
+                </div>
+                <div class="template-actions">
+                    <button class="btn btn-outline btn-sm" onclick="deleteTemplate('${t.id}')" title="删除模板">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                    </button>
+                </div>
+            </div>`;
+        }).join("");
+    } catch (err) {
+        console.error("加载模板失败:", err);
+    }
+}
+
+async function deleteTemplate(id) {
+    try {
+        const data = await api(`/templates/${id}`, { method: "DELETE" });
+        if (data.success) {
+            showToast("模板已删除", "success");
+            loadTemplates();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("删除失败", "error");
+    }
+}
+
+async function generateTasks() {
+    try {
+        await api("/templates/generate", { method: "POST" });
+    } catch (err) {
+        console.error("生成任务失败:", err);
+    }
+}
+
+// ─── 每日打卡 ─────────────────────────────────────────────
+
+function bindCheckin() {
+    $("#btn-checkin").addEventListener("click", async () => {
+        await doCheckin();
+    });
+}
+
+async function loadCheckinStatus() {
+    try {
+        const data = await api("/checkin/status");
+        if (!data.success) return;
+
+        const { current_streak, max_streak, checked_in_today } = data.data;
+        $("#checkin-current").textContent = `当前连续: ${current_streak}天`;
+        $("#checkin-max").textContent = `最长连续: ${max_streak}天`;
+
+        const btn = $("#btn-checkin");
+        if (checked_in_today) {
+            btn.classList.add("checked");
+            btn.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> 已签到`;
+            btn.disabled = true;
+        } else {
+            btn.classList.remove("checked");
+            btn.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> 签到`;
+            btn.disabled = false;
+        }
+
+        // 显示激励语句
+        updateCheckinQuote(current_streak);
+    } catch (err) {
+        console.error("获取签到状态失败:", err);
+    }
+}
+
+function updateCheckinQuote(streak) {
+    const quoteEl = $("#checkin-quote");
+    if (!quoteEl) return;
+
+    if (streak === 0) {
+        quoteEl.classList.add("hidden");
+        return;
+    }
+
+    quoteEl.classList.remove("hidden");
+    quoteEl.classList.remove("milestone");
+
+    // 100的整数倍优先显示
+    if (streak > 0 && streak % 100 === 0) {
+        quoteEl.textContent = `恭喜你已经坚持了${streak}天，回头看，轻舟已过万重山；向前看，长路漫漫亦灿灿。带着百日的底气，奔赴下一个山海。`;
+        quoteEl.classList.add("milestone");
+    } else if (streak >= 31) {
+        quoteEl.textContent = "不再是痛苦的自律，而是自然的流淌。恭喜你，已经把优秀内化成了身体的本能。";
+    } else if (streak >= 8) {
+        quoteEl.textContent = "不是因为看到希望才坚持，而是因为坚持了才看到希望。中间的这段路最黑，但也离黎明最近。";
+    } else if (streak >= 1) {
+        quoteEl.textContent = "不要高估一天的改变，但绝不要低估一周的积累。你正在为万里长城垒下第一块真正的基石。";
+    }
+}
+
+async function doCheckin() {
+    try {
+        const data = await api("/checkin", { method: "POST" });
+        if (data.success) {
+            const { current_streak, max_streak } = data.data;
+            showToast(`签到成功！连续${current_streak}天`, "success");
+            loadCheckinStatus();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("签到失败", "error");
+    }
 }
