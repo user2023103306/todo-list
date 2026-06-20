@@ -1049,9 +1049,28 @@ pub async fn run_server() {
         .route("/export", get(export_data))
         .route("/import", post(import_data));
 
+    // 获取静态文件目录（相对于可执行文件位置）
+    let exe_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+    let exe_dir = exe_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let static_dir = exe_dir.join("static");
+    let static_dir = if static_dir.exists() {
+        static_dir
+    } else {
+        // 开发模式：使用当前工作目录
+        PathBuf::from("static")
+    };
+
+    // CORS 配置：允许 Tauri 桌面应用跨域访问
+    use tower_http::cors::{CorsLayer, Any};
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .nest("/api", api_routes)
-        .fallback_service(ServeDir::new("static"))
+        .fallback_service(ServeDir::new(static_dir))
+        .layer(cors)
         .with_state(state);
 
     let port = 8080;

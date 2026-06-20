@@ -1,22 +1,23 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Manager;
+use std::thread;
+use std::time::Duration;
 
 fn main() {
+    // 在后台线程启动服务器
+    thread::spawn(|| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            task_manager_lib::server::run_server().await;
+        });
+    });
+
+    // 等待服务器启动完成
+    thread::sleep(Duration::from_secs(2));
+
+    // 启动Tauri窗口
     tauri::Builder::default()
-        .setup(|app| {
-            // 获取资源目录
-            let resource_path = app.path().resource_dir().unwrap();
-
-            // 在后台线程启动服务器
-            let _server_thread = std::thread::spawn(move || {
-                // 这里我们假设服务器已经作为单独的进程启动
-                // 或者我们可以内嵌服务器代码
-            });
-
-            Ok(())
-        })
         .run(tauri::generate_context!())
-        .expect("启动Tauri失败");
+        .expect("启动TaskFlow失败");
 }

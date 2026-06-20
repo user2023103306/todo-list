@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="check" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e0e7ff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- 背景圆角矩形 -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="url(#bg)" />
+
+  <!-- 装饰圆点 -->
+  <circle cx="120" cy="120" r="24" fill="rgba(255,255,255,0.15)" />
+  <circle cx="392" cy="392" r="32" fill="rgba(255,255,255,0.1)" />
+  <circle cx="400" cy="140" r="16" fill="rgba(255,255,255,0.12)" />
+
+  <!-- 勾选框背景 -->
+  <rect x="156" y="180" width="200" height="200" rx="24" ry="24" fill="rgba(255,255,255,0.2)" />
+
+  <!-- 勾选标记 -->
+  <path d="M 200 280 L 240 320 L 320 220" stroke="url(#check)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+
+  <!-- 装饰线条 -->
+  <line x1="156" y1="380" x2="356" y2="380" stroke="rgba(255,255,255,0.3)" stroke-width="12" stroke-linecap="round" />
+  <line x1="156" y1="420" x2="280" y2="420" stroke="rgba(255,255,255,0.2)" stroke-width="12" stroke-linecap="round" />
+</svg>

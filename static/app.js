@@ -103,11 +103,16 @@ function bindNavigation() {
 
 // ─── API 请求 ─────────────────────────────────────────────
 
+// 检测是否在 Tauri 桌面环境中运行
+const isTauri = window.__TAURI_INTERNALS__ !== undefined;
+// Tauri 桌面环境下使用绝对地址，浏览器环境下使用相对路径
+const API_BASE = isTauri ? "http://localhost:8080/api" : "/api";
+
 async function api(path, options = {}) {
     const headers = { "Content-Type": "application/json", ...options.headers };
     if (sessionId) headers["X-Session-Id"] = sessionId;
     try {
-        const resp = await fetch(`/api${path}`, { ...options, headers });
+        const resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
         if (resp.status === 401) {
             // session 失效，清除本地状态，跳转登录页
             sessionId = null;
@@ -1119,7 +1124,7 @@ function bindExportImport() {
     $("#btn-export").addEventListener("click", async () => {
         try {
             const headers = { "X-Session-Id": sessionId };
-            const resp = await fetch("/api/export", { headers });
+            const resp = await fetch(`${API_BASE}/export`, { headers });
             if (resp.status === 401) {
                 showToast("请先登录", "error");
                 return;
@@ -1153,7 +1158,7 @@ function bindExportImport() {
             const formData = new FormData();
             formData.append("file", file);
 
-            const resp = await fetch("/api/import", {
+            const resp = await fetch(`${API_BASE}/import`, {
                 method: "POST",
                 headers: { "X-Session-Id": sessionId },
                 body: formData,
