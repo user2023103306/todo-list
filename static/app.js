@@ -3,6 +3,7 @@
 let sessionId = localStorage.getItem("session_id") || null;
 let currentPhone = localStorage.getItem("phone") || null;
 let deleteTargetId = null;
+let deleteTargetType = "task"; // "task" 或 "template"
 
 // 主题状态：normal, eyecare, night, eyecare+night
 let currentTheme = localStorage.getItem("theme") || "normal";
@@ -75,6 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindGenerator();
     bindCheckin();
     bindExportImport();
+    bindRecycleBin();
 
     // 应用保存的主题
     applyTheme();
@@ -253,13 +255,25 @@ function bindModal() {
     $("#modal-confirm").addEventListener("click", async () => {
         if (!deleteTargetId) return;
         $("#modal-overlay").classList.add("hidden");
+
         try {
-            const data = await api(`/tasks/${deleteTargetId}`, { method: "DELETE" });
-            if (data.success) {
-                showToast("任务已删除", "success");
-                loadAllData();
+            if (deleteTargetType === "template") {
+                const data = await api(`/templates/${deleteTargetId}`, { method: "DELETE" });
+                if (data.success) {
+                    showToast("模板已删除", "success");
+                    loadTemplates();
+                } else {
+                    showToast(data.message, "error");
+                }
             } else {
-                showToast(data.message, "error");
+                const data = await api(`/tasks/${deleteTargetId}`, { method: "DELETE" });
+                if (data.success) {
+                    showToast("任务已移到回收站", "success");
+                    loadAllData();
+                    loadRecycleBin();
+                } else {
+                    showToast(data.message, "error");
+                }
             }
         } catch (err) {
             showToast("删除失败", "error");
@@ -387,6 +401,7 @@ function enterMainView() {
         loadAllData();
         loadTemplates();
         loadCheckinStatus();
+        loadRecycleBin();
     });
 }
 
@@ -446,13 +461,6 @@ async function loadAllData() {
     renderPagination("pagination-expired", expiredPage, expiredTotalPages, "expired");
     renderPagination("pagination-done", donePage, doneTotalPages, "done");
 
-    // 全空提示
-    const grandEmpty = $("#grand-empty");
-    if (totalCount === 0 && !currentSearch && currentCategory === "全部") {
-        grandEmpty.classList.remove("hidden");
-    } else {
-        grandEmpty.classList.add("hidden");
-    }
     } catch (e) {
         console.error("加载数据失败:", e);
     }
@@ -629,6 +637,10 @@ async function toggleTask(id) {
 
 function promptDelete(id) {
     deleteTargetId = id;
+    deleteTargetType = "task";
+    // 恢复弹窗文本
+    $(".modal-text").textContent = "确定要删除这个任务吗？";
+    $(".modal-sub").textContent = "删除后无法恢复";
     $("#modal-overlay").classList.remove("hidden");
 }
 
@@ -1004,7 +1016,10 @@ async function loadTemplates() {
                     </div>
                 </div>
                 <div class="template-actions">
-                    <button class="btn btn-outline btn-sm" onclick="deleteTemplate('${t.id}')" title="删除模板">
+                    <button class="btn btn-outline btn-sm edit-btn" onclick="startEditTemplate('${t.id}')" title="编辑模板">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                    </button>
+                    <button class="btn btn-outline btn-sm delete-btn" onclick="deleteTemplate('${t.id}')" title="删除模板">
                         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
                     </button>
                 </div>
@@ -1015,17 +1030,119 @@ async function loadTemplates() {
     }
 }
 
-async function deleteTemplate(id) {
+function deleteTemplate(id) {
+    deleteTargetId = id;
+    deleteTargetType = "template";
+    // 更新弹窗文本
+    $(".modal-text").textContent = "确定要删除这个自动生成模板吗？";
+    $(".modal-sub").textContent = "删除后将停止自动生成任务";
+    $("#modal-overlay").classList.remove("hidden");
+}
+
+function startEditTemplate(id) {
+    // 获取模板数据
+    api("/templates").then(data => {
+        if (!data || !data.success) return;
+        const template = data.data.find(t => t.id === id);
+        if (!template) return;
+        startEditTemplateWithTemplate(template);
+    }).catch(() => {});
+}
+
+function startEditTemplateWithTemplate(template) {
+    const itemEl = document.querySelector(`.template-item[data-id="${template.id}"]`);
+    if (!itemEl) return;
+
+    itemEl.classList.add("editing");
+    const bodyEl = itemEl.querySelector(".template-body");
+
+    const freqLabels = { daily: "按日", weekly: "按周", monthly: "按月" };
+    const dayLabels = { 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日" };
+
+    let freqDetail = "";
+    if (template.frequency === "daily") {
+        freqDetail = `每天 ${template.generate_time}`;
+    } else if (template.frequency === "weekly") {
+        freqDetail = `每${dayLabels[template.generate_day] || ""} ${template.generate_time}`;
+    } else {
+        freqDetail = `每月${template.generate_day}号 ${template.generate_time}`;
+    }
+
+    bodyEl.innerHTML = `
+        <input class="edit-input" id="edit-tmpl-title-${template.id}" value="${escAttr(template.title)}" placeholder="模板标题" maxlength="100">
+        <input class="edit-input" id="edit-tmpl-desc-${template.id}" value="${escAttr(template.description)}" placeholder="模板描述（可选）" maxlength="500">
+        <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+            <select class="edit-input select-edit" id="edit-tmpl-category-${template.id}" style="flex:1;min-width:80px;">
+                <option value="工作" ${template.category === "工作" ? "selected" : ""}>工作</option>
+                <option value="学习" ${template.category === "学习" ? "selected" : ""}>学习</option>
+                <option value="生活" ${template.category === "生活" ? "selected" : ""}>生活</option>
+                <option value="家庭" ${template.category === "家庭" ? "selected" : ""}>家庭</option>
+                <option value="其他" ${template.category === "其他" ? "selected" : ""}>其他</option>
+            </select>
+            <select class="edit-input select-edit" id="edit-tmpl-freq-${template.id}" style="flex:1;min-width:80px;">
+                <option value="daily" ${template.frequency === "daily" ? "selected" : ""}>按日</option>
+                <option value="weekly" ${template.frequency === "weekly" ? "selected" : ""}>按周</option>
+                <option value="monthly" ${template.frequency === "monthly" ? "selected" : ""}>按月</option>
+            </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+            <div style="flex:1;">
+                <div style="font-size:11px;color:#b2bec3;margin-bottom:2px;">星级</div>
+                <div class="star-rating" id="star-edit-tmpl-${template.id}" style="padding:0;">
+                    ${[1,2,3,4,5].map(v => `<span class="star ${v <= template.star_rating ? "active" : ""}" data-val="${v}" onclick="clickEditStarTmpl('${template.id}', ${v})">&#9733;</span>`).join("")}
+                </div>
+                <input type="hidden" id="edit-tmpl-star-${template.id}" value="${template.star_rating}">
+            </div>
+        </div>
+        <div class="edit-actions">
+            <button class="btn btn-primary btn-sm" onclick="saveEditTemplate('${template.id}')">保存</button>
+            <button class="btn btn-outline btn-sm" onclick="loadTemplates()">取消</button>
+        </div>`;
+
+    const actionsEl = itemEl.querySelector(".template-actions");
+    if (actionsEl) actionsEl.style.display = "none";
+
+    const titleInput = $(`#edit-tmpl-title-${template.id}`);
+    titleInput.focus();
+    titleInput.select();
+    titleInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveEditTemplate(template.id); });
+}
+
+function clickEditStarTmpl(templateId, val) {
+    const input = $(`#edit-tmpl-star-${templateId}`);
+    const current = parseInt(input.value);
+    if (current === val) {
+        input.value = "0";
+        val = 0;
+    } else {
+        input.value = val;
+    }
+    $(`#star-edit-tmpl-${templateId}`).querySelectorAll(".star").forEach(s => {
+        s.classList.toggle("active", parseInt(s.dataset.val) <= val);
+    });
+}
+
+async function saveEditTemplate(id) {
     try {
-        const data = await api(`/templates/${id}`, { method: "DELETE" });
+        const title = $(`#edit-tmpl-title-${id}`).value.trim();
+        if (!title) { showToast("模板标题不能为空", "error"); return; }
+
+        const body = {
+            title,
+            description: $(`#edit-tmpl-desc-${id}`).value.trim(),
+            category: $(`#edit-tmpl-category-${id}`).value,
+            star_rating: parseInt($(`#edit-tmpl-star-${id}`).value) || 0,
+        };
+
+        const data = await api(`/templates/${id}`, { method: "PUT", body: JSON.stringify(body) });
         if (data.success) {
-            showToast("模板已删除", "success");
+            showToast("模板已更新", "success");
             loadTemplates();
         } else {
             showToast(data.message, "error");
         }
     } catch (err) {
-        showToast("删除失败", "error");
+        showToast("保存失败", "error");
     }
 }
 
@@ -1175,4 +1292,106 @@ function bindExportImport() {
         // 清空input，允许重复选择同一文件
         e.target.value = "";
     });
+}
+
+// ─── 回收站 ─────────────────────────────────────────────
+
+function bindRecycleBin() {
+    // 清空回收站
+    $("#btn-clear-recycle").addEventListener("click", async () => {
+        if (!confirm("确定要清空回收站吗？清空后无法恢复。")) return;
+        try {
+            const data = await api("/recycle", { method: "DELETE" });
+            if (data.success) {
+                showToast("回收站已清空", "success");
+                loadRecycleBin();
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("清空失败", "error");
+        }
+    });
+}
+
+async function loadRecycleBin() {
+    try {
+        const data = await api("/recycle");
+        if (!data.success) return;
+
+        const items = data.data || [];
+        const listEl = $("#list-recycle");
+        const emptyEl = $("#empty-recycle");
+        const badgeEl = $("#badge-recycle");
+
+        badgeEl.textContent = items.length;
+
+        if (items.length === 0) {
+            listEl.innerHTML = "";
+            emptyEl.classList.remove("hidden");
+            return;
+        }
+
+        emptyEl.classList.add("hidden");
+
+        listEl.innerHTML = items.map(item => {
+            const task = item.task;
+            const stars = task.star_rating > 0 ? "★".repeat(task.star_rating) + "☆".repeat(5 - task.star_rating) : "";
+
+            return `
+            <div class="recycle-item" data-id="${task.id}">
+                <div class="task-body">
+                    <div class="task-title-text">${esc(task.title)}</div>
+                    ${task.description ? `<div class="task-desc-text">${esc(task.description)}</div>` : ""}
+                    <div class="task-meta">
+                        <span class="category-tag">${esc(task.category || "其他")}</span>
+                        ${stars ? `<span class="star-display">${stars}</span>` : ""}
+                        <span class="deleted-time">删除于: ${item.deleted_at}</span>
+                    </div>
+                </div>
+                <div class="recycle-actions">
+                    <button class="btn btn-outline btn-sm recycle-restore-btn" onclick="restoreTask('${task.id}')" title="恢复任务">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+                        恢复
+                    </button>
+                    <button class="btn btn-outline btn-sm recycle-delete-btn" onclick="permanentDelete('${task.id}')" title="永久删除">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                        删除
+                    </button>
+                </div>
+            </div>`;
+        }).join("");
+    } catch (err) {
+        console.error("加载回收站失败:", err);
+    }
+}
+
+async function restoreTask(id) {
+    try {
+        const data = await api(`/recycle/${id}/restore`, { method: "POST" });
+        if (data.success) {
+            showToast("任务已恢复", "success");
+            loadRecycleBin();
+            loadAllData();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("恢复失败", "error");
+    }
+}
+
+async function permanentDelete(id) {
+    if (!confirm("确定要永久删除这个任务吗？此操作无法撤销。")) return;
+    try {
+        const data = await api(`/recycle/${id}`, { method: "DELETE" });
+        if (data.success) {
+            showToast("任务已永久删除", "success");
+            loadRecycleBin();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("删除失败", "error");
+    }
 }

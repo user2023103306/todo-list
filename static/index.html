@@ -247,21 +247,6 @@
                 </div>
             </div>
 
-            <!-- 自动生成模板列表 -->
-            <div class="task-section" id="templates-section">
-                <h2 class="section-title">
-                    <span class="section-icon">&#128260;</span>
-                    自动生成任务
-                    <span class="badge" id="badge-templates">0</span>
-                </h2>
-                <div id="list-templates" class="task-list"></div>
-                <div class="empty-state" id="empty-templates">
-                    <div class="empty-emoji">&#128260;</div>
-                    <p class="empty-text">还没有自动生成任务</p>
-                    <p class="empty-sub">点击上方"自动生成"按钮创建</p>
-                </div>
-            </div>
-
             <!-- 排序视图切换 -->
             <div class="sort-tabs">
                 <button class="sort-tab active" data-sort="created">
@@ -294,27 +279,6 @@
                 <div class="pagination" id="pagination-pending"></div>
             </div>
 
-            <!-- 已过期 -->
-            <div class="task-section">
-                <h2 class="section-title">
-                    <span class="section-icon">&#128679;</span>
-                    已过期
-                    <span class="badge badge-expired" id="badge-expired">0</span>
-                </h2>
-                <div id="list-expired" class="task-list"></div>
-                <div class="empty-state" id="empty-expired">
-                    <div class="empty-emoji">&#127881;</div>
-                    <p class="empty-text">真不错，你没有错过任何一个任务！</p>
-                    <p class="empty-sub">继续保持，你的时间管理很棒~</p>
-                </div>
-                <div class="empty-state hidden" id="empty-expired-has">
-                    <div class="empty-emoji">&#128532;</div>
-                    <p class="empty-text">很遗憾，你错过了这些任务</p>
-                    <p class="empty-sub">但我相信你接下来会越做越好，加油！</p>
-                </div>
-                <div class="pagination" id="pagination-expired"></div>
-            </div>
-
             <!-- 已完成 -->
             <div class="task-section">
                 <h2 class="section-title">
@@ -331,12 +295,63 @@
                 <div class="pagination" id="pagination-done"></div>
             </div>
 
-            <!-- 全空大提示 -->
-            <div class="empty-state grand-empty hidden" id="grand-empty">
-                <div class="empty-emoji big-emoji">&#128640;</div>
-                <p class="empty-text">还没有任何任务</p>
-                <p class="empty-sub">在上方输入框添加你的第一个任务吧！</p>
+            <!-- 两栏布局：自动生成任务 + 已过期 -->
+            <div class="two-column-section">
+                <!-- 自动生成模板列表 -->
+                <div class="task-section column-section" id="templates-section">
+                    <h2 class="section-title">
+                        <span class="section-icon">&#128260;</span>
+                        自动生成任务
+                        <span class="badge" id="badge-templates">0</span>
+                    </h2>
+                    <div id="list-templates" class="task-list"></div>
+                    <div class="empty-state" id="empty-templates">
+                        <div class="empty-emoji">&#128260;</div>
+                        <p class="empty-text">还没有自动生成任务</p>
+                        <p class="empty-sub">点击上方"自动生成"按钮创建</p>
+                    </div>
+                </div>
+
+                <!-- 已过期 -->
+                <div class="task-section column-section">
+                    <h2 class="section-title">
+                        <span class="section-icon">&#128679;</span>
+                        已过期
+                        <span class="badge badge-expired" id="badge-expired">0</span>
+                    </h2>
+                    <div id="list-expired" class="task-list"></div>
+                    <div class="empty-state" id="empty-expired">
+                        <div class="empty-emoji">&#127881;</div>
+                        <p class="empty-text">真不错，你没有错过任何一个任务！</p>
+                        <p class="empty-sub">继续保持，你的时间管理很棒~</p>
+                    </div>
+                    <div class="empty-state hidden" id="empty-expired-has">
+                        <div class="empty-emoji">&#128532;</div>
+                        <p class="empty-text">很遗憾，你错过了这些任务</p>
+                        <p class="empty-sub">但我相信你接下来会越做越好，加油！</p>
+                    </div>
+                    <div class="pagination" id="pagination-expired"></div>
+                </div>
             </div>
+
+            <!-- 回收站 -->
+            <div class="task-section recycle-section" id="recycle-section">
+                <h2 class="section-title">
+                    <span class="section-icon">&#128465;</span>
+                    回收站
+                    <span class="badge" id="badge-recycle">0</span>
+                    <button class="btn btn-outline btn-sm recycle-clear-btn" id="btn-clear-recycle" title="清空回收站">
+                        清空
+                    </button>
+                </h2>
+                <div id="list-recycle" class="task-list"></div>
+                <div class="empty-state" id="empty-recycle">
+                    <div class="empty-emoji">&#128465;</div>
+                    <p class="empty-text">回收站是空的</p>
+                    <p class="empty-sub">删除的任务会暂时保存在这里</p>
+                </div>
+            </div>
+
         </div>
     </div>
 

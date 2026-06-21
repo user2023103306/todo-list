@@ -897,8 +897,123 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     background: rgba(243, 156, 18, 0.1); color: var(--warning);
 }
 
-.template-actions { flex-shrink: 0; }
+.template-actions { flex-shrink: 0; display: flex; gap: 6px; }
 .template-actions .btn { padding: 5px 8px; font-size: 12px; min-height: 30px; }
+
+.template-actions .edit-btn {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.template-actions .edit-btn:hover {
+    background: var(--primary);
+    color: #fff;
+}
+
+.template-actions .delete-btn {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.template-actions .delete-btn:hover {
+    background: var(--danger);
+    color: #fff;
+}
+
+/* ─── 回收站 ──────────────────────────────────────────────── */
+
+.recycle-section {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 2px dashed var(--border);
+}
+
+.recycle-section .section-title {
+    position: relative;
+}
+
+.recycle-clear-btn {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 4px 12px;
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.recycle-clear-btn:hover {
+    background: var(--danger);
+    color: #fff;
+}
+
+.recycle-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--card);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    box-shadow: var(--shadow);
+    transition: all 0.25s;
+    opacity: 0.8;
+}
+
+.recycle-item:hover {
+    box-shadow: var(--shadow-hover);
+    opacity: 1;
+}
+
+.recycle-item .task-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.recycle-item .task-title-text {
+    font-size: 14px;
+    color: var(--text-light);
+    text-decoration: line-through;
+}
+
+.recycle-item .task-meta {
+    margin-top: 4px;
+}
+
+.recycle-item .deleted-time {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.recycle-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.recycle-actions .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    min-height: 30px;
+}
+
+.recycle-restore-btn {
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.recycle-restore-btn:hover {
+    background: var(--success);
+    color: #fff;
+}
+
+.recycle-delete-btn {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.recycle-delete-btn:hover {
+    background: var(--danger);
+    color: #fff;
+}
 
 /* ─── 响应式 ──────────────────────────────────────────────── */
 
@@ -927,4 +1042,24 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 @media (min-width: 768px) {
     .container { padding: 24px; }
     .stats-row { gap: 14px; }
+
+    /* 两栏布局 */
+    .two-column-section {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    .column-section {
+        min-width: 0;
+    }
+}
+
+@media (max-width: 767px) {
+    .two-column-section {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+}
 }

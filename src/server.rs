@@ -34,6 +34,12 @@ struct Task {
     created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct RecycleBinItem {
+    task: Task,
+    deleted_at: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct RegisterRequest {
     phone: String,
@@ -105,6 +111,19 @@ struct CreateTemplateRequest {
     deadline_day: u8,
     #[serde(default = "default_deadline_time")]
     deadline_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateTemplateRequest {
+    title: Option<String>,
+    description: Option<String>,
+    category: Option<String>,
+    star_rating: Option<u8>,
+    frequency: Option<String>,
+    generate_day: Option<u8>,
+    generate_time: Option<String>,
+    deadline_day: Option<u8>,
+    deadline_time: Option<String>,
 }
 
 fn default_generate_time() -> String { "09:00".to_string() }
@@ -270,6 +289,26 @@ impl AppState {
     fn write_checkin(&self, phone: &str, data: &CheckinData) -> Result<(), String> {
         let path = self.checkin_path(phone);
         let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
+        fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    fn recycle_bin_path(&self, phone: &str) -> PathBuf {
+        self.data_dir.join(format!("{phone}_recycle.json"))
+    }
+
+    fn read_recycle_bin(&self, phone: &str) -> Vec<RecycleBinItem> {
+        let path = self.recycle_bin_path(phone);
+        if path.exists() {
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn write_recycle_bin(&self, phone: &str, items: &[RecycleBinItem]) -> Result<(), String> {
+        let path = self.recycle_bin_path(phone);
+        let json = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
         fs::write(path, json).map_err(|e| e.to_string())
     }
 }
@@ -549,14 +588,117 @@ async fn delete_task(
         Err((s, r)) => return (s, r),
     };
     let mut tasks = state.read_tasks(&phone);
-    let before = tasks.len();
-    tasks.retain(|t| t.id != task_id);
-    if tasks.len() == before {
-        return (StatusCode::NOT_FOUND, err("任务不存在"));
+    let task_index = tasks.iter().position(|t| t.id == task_id);
+    let task = match task_index {
+        Some(idx) => tasks.remove(idx),
+        None => return (StatusCode::NOT_FOUND, err("任务不存在")),
+    };
+
+    // 移动到回收站
+    let mut recycle_bin = state.read_recycle_bin(&phone);
+    recycle_bin.insert(0, RecycleBinItem {
+        task,
+        deleted_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    });
+
+    // 保留最近100条
+    if recycle_bin.len() > 100 {
+        recycle_bin.truncate(100);
     }
-    match state.write_tasks(&phone, &tasks) {
-        Ok(_) => (StatusCode::OK, ok("任务已删除", ())),
+
+    match state.write_recycle_bin(&phone, &recycle_bin) {
+        Ok(_) => match state.write_tasks(&phone, &tasks) {
+            Ok(_) => (StatusCode::OK, ok("任务已移到回收站", ())),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+        },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+    }
+}
+
+async fn list_recycle_bin(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let recycle_bin = state.read_recycle_bin(&phone);
+    (StatusCode::OK, ok("获取成功", recycle_bin))
+}
+
+async fn restore_task(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Path(task_id): Path<String>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let mut recycle_bin = state.read_recycle_bin(&phone);
+    let item_index = recycle_bin.iter().position(|item| item.task.id == task_id);
+    let item = match item_index {
+        Some(idx) => recycle_bin.remove(idx),
+        None => return (StatusCode::NOT_FOUND, err("任务不在回收站中")),
+    };
+
+    let mut restored_task = item.task;
+
+    // 检查任务是否已过期（如果有截止日期且未完成）
+    if !restored_task.deadline.is_empty() && !restored_task.completed {
+        if let Ok(dl) = NaiveDateTime::parse_from_str(&restored_task.deadline, "%Y-%m-%dT%H:%M") {
+            let dl_local = dl - Duration::hours(8);
+            if dl_local < Local::now().naive_local() {
+                // 任务已过期，保持原样，前端会将其显示在已过期区域
+            }
+        }
+    }
+
+    let mut tasks = state.read_tasks(&phone);
+    tasks.insert(0, restored_task);
+
+    match state.write_recycle_bin(&phone, &recycle_bin) {
+        Ok(_) => match state.write_tasks(&phone, &tasks) {
+            Ok(_) => (StatusCode::OK, ok("任务已恢复", ())),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("恢复失败: {e}"))),
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("恢复失败: {e}"))),
+    }
+}
+
+async fn permanent_delete_task(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Path(task_id): Path<String>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let mut recycle_bin = state.read_recycle_bin(&phone);
+    let before = recycle_bin.len();
+    recycle_bin.retain(|item| item.task.id != task_id);
+    if recycle_bin.len() == before {
+        return (StatusCode::NOT_FOUND, err("任务不在回收站中"));
+    }
+    match state.write_recycle_bin(&phone, &recycle_bin) {
+        Ok(_) => (StatusCode::OK, ok("任务已永久删除", ())),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+    }
+}
+
+async fn clear_recycle_bin(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    match state.write_recycle_bin(&phone, &[]) {
+        Ok(_) => (StatusCode::OK, ok("回收站已清空", ())),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("清空失败: {e}"))),
     }
 }
 
@@ -630,6 +772,46 @@ async fn delete_template(
     match state.write_templates(&phone, &templates) {
         Ok(_) => (StatusCode::OK, ok("模板已删除", ())),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+    }
+}
+
+async fn update_template(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Path(template_id): Path<String>,
+    Json(req): Json<UpdateTemplateRequest>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    let mut templates = state.read_templates(&phone);
+    let template = match templates.iter_mut().find(|t| t.id == template_id) {
+        Some(t) => t,
+        None => return (StatusCode::NOT_FOUND, err("模板不存在")),
+    };
+    if let Some(title) = req.title {
+        let title = title.trim().to_string();
+        if title.is_empty() { return (StatusCode::BAD_REQUEST, err("模板标题不能为空")); }
+        template.title = title;
+    }
+    if let Some(desc) = req.description { template.description = desc.trim().to_string(); }
+    if let Some(c) = req.category { template.category = c; }
+    if let Some(s) = req.star_rating { template.star_rating = s.min(5); }
+    if let Some(f) = req.frequency {
+        if !["monthly", "weekly", "daily"].contains(&f.as_str()) {
+            return (StatusCode::BAD_REQUEST, err("频率必须为 monthly/weekly/daily"));
+        }
+        template.frequency = f;
+    }
+    if let Some(d) = req.generate_day { template.generate_day = d; }
+    if let Some(t) = req.generate_time { template.generate_time = t; }
+    if let Some(d) = req.deadline_day { template.deadline_day = d; }
+    if let Some(t) = req.deadline_time { template.deadline_time = t; }
+    let updated = template.clone();
+    match state.write_templates(&phone, &templates) {
+        Ok(_) => (StatusCode::OK, ok("模板更新成功", updated)),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("更新失败: {e}"))),
     }
 }
 
@@ -1042,8 +1224,11 @@ pub async fn run_server() {
         .route("/tasks/{id}", put(update_task).delete(delete_task))
         .route("/tasks/{id}/toggle", post(toggle_task))
         .route("/templates", get(list_templates).post(create_template))
-        .route("/templates/{id}", delete(delete_template))
+        .route("/templates/{id}", put(update_template).delete(delete_template))
         .route("/templates/generate", post(generate_tasks))
+        .route("/recycle", get(list_recycle_bin).delete(clear_recycle_bin))
+        .route("/recycle/{id}/restore", post(restore_task))
+        .route("/recycle/{id}", delete(permanent_delete_task))
         .route("/checkin", post(checkin))
         .route("/checkin/status", get(checkin_status))
         .route("/export", get(export_data))
