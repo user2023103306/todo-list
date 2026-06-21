@@ -1062,4 +1062,200 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
         gap: 20px;
     }
 }
+
+/* ─── 用户中心 ──────────────────────────────────────────────── */
+
+.user-center-content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.user-info-card .user-info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.user-info-card .user-info-row:last-child {
+    border-bottom: none;
+}
+
+.user-info-card .user-info-label {
+    color: var(--text-light);
+    font-size: 14px;
+    min-width: 80px;
+}
+
+.user-info-card .user-info-value {
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.change-password-card form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.change-password-card .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.change-password-card label {
+    font-size: 14px;
+    color: var(--text-light);
+}
+
+.change-password-card input {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.change-password-card input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.chart-container {
+    position: relative;
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 20px 0;
+}
+
+.chart-legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+}
+
+.chart-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.chart-legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+}
+
+.stats-chart-card,
+.monthly-chart-card {
+    text-align: center;
+}
+
+.monthly-chart-card .chart-container {
+    max-width: 100%;
+    padding: 20px;
+}
+
+@media (max-width: 480px) {
+    .user-center-content {
+        padding: 10px;
+    }
+
+    .chart-legend {
+        gap: 12px;
+    }
+
+    .chart-legend-item {
+        font-size: 12px;
+    }
+}
+
+/* ─── 批量操作 ──────────────────────────────────────────────── */
+
+.section-actions {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.section-actions .btn {
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.task-checkbox {
+    display: none;
+    margin-right: 8px;
+}
+
+.task-checkbox.visible {
+    display: inline-flex;
+    align-items: center;
+}
+
+.task-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.batch-actions {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+}
+
+.batch-actions.visible {
+    display: flex;
+}
+
+.batch-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-light);
+    cursor: pointer;
+}
+
+.batch-select-all input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.batch-count {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+@media (max-width: 480px) {
+    .section-actions {
+        gap: 4px;
+    }
+
+    .section-actions .btn {
+        font-size: 11px;
+        padding: 3px 6px;
+    }
+}
 }

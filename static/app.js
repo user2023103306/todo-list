@@ -5,6 +5,11 @@ let currentPhone = localStorage.getItem("phone") || null;
 let deleteTargetId = null;
 let deleteTargetType = "task"; // "task" 或 "template"
 
+// 存储所有任务数据（用于全选功能）
+let allPendingTasks = [];
+let allDoneTasks = [];
+let allExpiredTasks = [];
+
 // 主题状态：normal, eyecare, night, eyecare+night
 let currentTheme = localStorage.getItem("theme") || "normal";
 let eyecareEnabled = localStorage.getItem("eyecare") === "true";
@@ -59,6 +64,11 @@ const viewLogin = $("#view-login");
 const viewRegister = $("#view-register");
 const viewMain = $("#view-main");
 const viewQuote = $("#view-quote");
+const viewUserCenter = $("#view-user-center");
+
+// 图表实例
+let pieChart = null;
+let barChart = null;
 
 // ─── 初始化 ───────────────────────────────────────────────
 
@@ -77,6 +87,8 @@ document.addEventListener("DOMContentLoaded", () => {
     bindCheckin();
     bindExportImport();
     bindRecycleBin();
+    bindUserCenter();
+    bindBatchOperations();
 
     // 应用保存的主题
     applyTheme();
@@ -96,6 +108,7 @@ function showView(name) {
     viewRegister.classList.toggle("hidden", name !== "register");
     viewMain.classList.toggle("hidden", name !== "main");
     viewQuote.classList.toggle("hidden", name !== "quote");
+    viewUserCenter.classList.toggle("hidden", name !== "user-center");
 }
 
 function bindNavigation() {
@@ -110,6 +123,7 @@ async function api(path, options = {}) {
     if (sessionId) headers["X-Session-Id"] = sessionId;
     try {
         const resp = await fetch(`/api${path}`, { ...options, headers });
+        const data = await resp.json();
         if (resp.status === 401) {
             // session 失效，清除本地状态，跳转登录页
             sessionId = null;
@@ -117,9 +131,9 @@ async function api(path, options = {}) {
             localStorage.removeItem("session_id");
             localStorage.removeItem("phone");
             showView("login");
-            return { success: false, message: "登录已过期，请重新登录" };
+            return { success: false, message: data.message || "登录已过期，请重新登录" };
         }
-        return await resp.json();
+        return data;
     } catch (e) {
         console.error("API 请求失败:", path, e);
         return { success: false, message: "网络请求失败" };
@@ -427,6 +441,11 @@ async function loadAllData() {
     const pendingTasks = allTasks.filter(t => !t.completed && !isTaskExpired(t));
     const doneTasks = allTasks.filter(t => t.completed);
 
+    // 存储所有任务到全局变量（用于全选功能）
+    allPendingTasks = pendingTasks;
+    allDoneTasks = doneTasks;
+    allExpiredTasks = expiredTasks;
+
     totalCount = allTasks.length;
     pendingCount = pendingTasks.length;
     expiredCount = expiredTasks.length;
@@ -507,6 +526,9 @@ function renderTaskList(listId, emptyId, tasks, isDoneList, totalForSection) {
 
         return `
         <div class="task-item ${t.completed ? "done" : ""} star-${t.star_rating || 0}" data-id="${t.id}">
+            <label class="task-checkbox ${batchMode ? "visible" : ""}">
+                <input type="checkbox" onchange="toggleTaskSelection('${t.id}', this)" ${selectedTasks.has(t.id) ? "checked" : ""}>
+            </label>
             <button class="task-check ${t.completed ? "checked" : ""}" onclick="toggleTask('${t.id}')" title="切换状态"></button>
             <div class="task-body">
                 <div class="task-title-text">${esc(t.title)}</div>
@@ -575,6 +597,9 @@ function renderExpiredList(listId, tasks, totalForSection) {
 
         return `
         <div class="task-item expired star-${t.star_rating || 0}" data-id="${t.id}">
+            <label class="task-checkbox ${batchMode ? "visible" : ""}">
+                <input type="checkbox" onchange="toggleTaskSelection('${t.id}', this)" ${selectedTasks.has(t.id) ? "checked" : ""}>
+            </label>
             <button class="task-check" onclick="toggleTask('${t.id}')" title="标记完成"></button>
             <div class="task-body">
                 <div class="task-title-text">${esc(t.title)}</div>
@@ -1394,4 +1419,415 @@ async function permanentDelete(id) {
     } catch (err) {
         showToast("删除失败", "error");
     }
+}
+
+// ─── 用户中心 ─────────────────────────────────────────────
+
+function bindUserCenter() {
+    // 打开用户中心
+    $("#btn-user-center").addEventListener("click", () => {
+        showView("user-center");
+        loadUserProfile();
+        loadUserStats();
+    });
+
+    // 返回主页
+    $("#btn-back-main").addEventListener("click", () => {
+        showView("main");
+    });
+
+    // 修改密码表单
+    $("#form-change-password").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const oldPassword = $("#old-password").value.trim();
+        const newPassword = $("#new-password").value.trim();
+        const confirmPassword = $("#confirm-password").value.trim();
+
+        if (newPassword !== confirmPassword) {
+            showToast("两次输入的新密码不一致", "error");
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            showToast("新密码长度不能低于6位", "error");
+            return;
+        }
+
+        try {
+            const data = await api("/user/password", {
+                method: "PUT",
+                body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+            });
+            if (data.success) {
+                showToast("密码修改成功", "success");
+                $("#form-change-password").reset();
+            } else {
+                showToast(data.message, "error");
+            }
+        } catch (err) {
+            showToast("修改失败", "error");
+        }
+    });
+}
+
+async function loadUserProfile() {
+    try {
+        const data = await api("/user/profile");
+        if (data.success) {
+            $("#user-phone").textContent = data.data.phone;
+        }
+    } catch (err) {
+        console.error("加载用户信息失败:", err);
+    }
+}
+
+async function loadUserStats() {
+    try {
+        const data = await api("/user/stats");
+        if (data.success) {
+            renderPieChart(data.data);
+            renderBarChart(data.data.monthly_completed);
+        }
+    } catch (err) {
+        console.error("加载统计数据失败:", err);
+    }
+}
+
+function renderPieChart(stats) {
+    const ctx = document.getElementById("pie-chart").getContext("2d");
+
+    // 销毁旧图表
+    if (pieChart) {
+        pieChart.destroy();
+    }
+
+    const labels = ["已完成", "待做中", "已过期"];
+    const values = [stats.completed, stats.pending, stats.expired];
+    const colors = ["#27ae60", "#667eea", "#e74c3c"];
+
+    pieChart = new Chart(ctx, {
+        type: "pie",
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: "#ffffff"
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const value = context.parsed;
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return `${context.label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // 渲染自定义图例
+    const legendEl = document.getElementById("pie-legend");
+    const total = values.reduce((a, b) => a + b, 0);
+    legendEl.innerHTML = labels.map((label, i) => {
+        const percentage = total > 0 ? ((values[i] / total) * 100).toFixed(1) : 0;
+        return `
+            <div class="chart-legend-item">
+                <span class="chart-legend-color" style="background: ${colors[i]}"></span>
+                <span>${label}: ${values[i]} (${percentage}%)</span>
+            </div>
+        `;
+    }).join("");
+}
+
+function renderBarChart(monthlyData) {
+    const ctx = document.getElementById("bar-chart").getContext("2d");
+
+    // 销毁旧图表
+    if (barChart) {
+        barChart.destroy();
+    }
+
+    const labels = monthlyData.map(item => item[0]);
+    const values = monthlyData.map(item => item[1]);
+
+    barChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "完成任务数",
+                data: values,
+                backgroundColor: "#667eea",
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `完成: ${context.parsed.y} 个任务`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ─── 批量操作 ─────────────────────────────────────────────
+
+let batchMode = false;
+let selectedTasks = new Set();
+let currentBatchStatus = null;
+
+function bindBatchOperations() {
+    // 批量按钮点击事件
+    document.querySelectorAll(".batch-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const status = btn.dataset.status;
+            toggleBatchMode(status);
+        });
+    });
+
+    // 清空按钮点击事件
+    document.querySelectorAll(".clear-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const status = btn.dataset.status;
+            promptClearTasks(status);
+        });
+    });
+
+    // 批量操作确认对话框
+    $("#batch-modal-cancel").addEventListener("click", hideBatchModal);
+    $("#batch-modal-confirm").addEventListener("click", confirmBatchAction);
+}
+
+function toggleBatchMode(status) {
+    if (batchMode && currentBatchStatus === status) {
+        // 退出批量模式
+        batchMode = false;
+        selectedTasks.clear();
+        currentBatchStatus = null;
+        updateBatchUI();
+    } else {
+        // 进入批量模式
+        batchMode = true;
+        selectedTasks.clear();
+        currentBatchStatus = status;
+        updateBatchUI();
+    }
+}
+
+function updateBatchUI() {
+    // 更新所有复选框的可见性
+    document.querySelectorAll(".task-checkbox").forEach(cb => {
+        cb.classList.toggle("visible", batchMode);
+        if (!batchMode) {
+            cb.querySelector("input").checked = false;
+        }
+    });
+
+    // 更新批量操作栏
+    document.querySelectorAll(".batch-actions").forEach(bar => {
+        bar.classList.toggle("visible", batchMode);
+    });
+
+    // 退出批量模式时重置全选复选框
+    if (!batchMode) {
+        document.querySelectorAll(".batch-select-all input[type='checkbox']").forEach(cb => {
+            cb.checked = false;
+        });
+    }
+
+    // 更新选中计数
+    updateBatchCount();
+
+    // 更新批量按钮状态
+    document.querySelectorAll(".batch-btn").forEach(btn => {
+        const isActive = batchMode && btn.dataset.status === currentBatchStatus;
+        btn.classList.toggle("btn-primary", isActive);
+        btn.classList.toggle("btn-outline", !isActive);
+    });
+}
+
+function updateBatchCount() {
+    document.querySelectorAll(".batch-count").forEach(el => {
+        el.textContent = `已选择 ${selectedTasks.size} 项`;
+    });
+}
+
+function toggleTaskSelection(taskId, checkbox) {
+    if (checkbox.checked) {
+        selectedTasks.add(taskId);
+    } else {
+        selectedTasks.delete(taskId);
+    }
+    updateBatchCount();
+}
+
+function selectAllTasks(status) {
+    // 获取该栏目的所有任务
+    const allTasks = status === "pending" ? allPendingTasks :
+                     status === "completed" ? allDoneTasks : allExpiredTasks;
+
+    // 检查是否已经全选
+    const allTaskIds = allTasks.map(t => t.id);
+    const isAllSelected = allTaskIds.every(id => selectedTasks.has(id));
+
+    if (isAllSelected) {
+        // 取消全选：清空该栏目的所有任务
+        allTaskIds.forEach(id => selectedTasks.delete(id));
+    } else {
+        // 全选：添加该栏目的所有任务
+        allTaskIds.forEach(id => selectedTasks.add(id));
+    }
+
+    // 更新当前页的复选框状态
+    const listId = status === "pending" ? "list-pending" :
+                   status === "completed" ? "list-done" : "list-expired";
+    const listEl = $(`#${listId}`);
+    const checkboxes = listEl.querySelectorAll(".task-checkbox input");
+
+    checkboxes.forEach(cb => {
+        const taskId = cb.closest(".task-item").dataset.id;
+        cb.checked = selectedTasks.has(taskId);
+    });
+
+    updateBatchCount();
+}
+
+function promptClearTasks(status) {
+    const statusNames = {
+        "pending": "待办事项",
+        "completed": "已完成",
+        "expired": "已过期"
+    };
+
+    const statusName = statusNames[status] || status;
+    $("#batch-modal-text").textContent = `确定要清空所有${statusName}吗？`;
+    $("#batch-modal-sub").textContent = "此操作无法撤销";
+    $("#batch-modal-confirm").dataset.action = "clear";
+    $("#batch-modal-confirm").dataset.status = status;
+    showBatchModal();
+}
+
+function promptBatchDelete() {
+    if (selectedTasks.size === 0) {
+        showToast("请先选择要删除的任务", "error");
+        return;
+    }
+
+    $("#batch-modal-text").textContent = `确定要删除选中的 ${selectedTasks.size} 个任务吗？`;
+    $("#batch-modal-sub").textContent = "删除后将移至回收站";
+    $("#batch-modal-confirm").dataset.action = "batch-delete";
+    showBatchModal();
+}
+
+function showBatchModal() {
+    $("#batch-modal-overlay").classList.remove("hidden");
+}
+
+function hideBatchModal() {
+    $("#batch-modal-overlay").classList.add("hidden");
+}
+
+async function confirmBatchAction() {
+    const action = $("#batch-modal-confirm").dataset.action;
+    const status = $("#batch-modal-confirm").dataset.status;
+
+    hideBatchModal();
+
+    if (action === "batch-delete") {
+        await executeBatchDelete();
+    } else if (action === "clear") {
+        await executeClearTasks(status);
+    }
+}
+
+async function executeBatchDelete() {
+    const taskIds = Array.from(selectedTasks);
+
+    try {
+        const data = await api("/tasks/batch-delete", {
+            method: "POST",
+            body: JSON.stringify({ task_ids: taskIds })
+        });
+
+        if (data.success) {
+            showToast(data.message, "success");
+            // 重置批量模式状态
+            batchMode = false;
+            selectedTasks.clear();
+            currentBatchStatus = null;
+            // 重置全选复选框
+            resetSelectAllCheckboxes();
+            updateBatchUI();
+            loadAllData();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("批量删除失败", "error");
+    }
+}
+
+async function executeClearTasks(status) {
+    try {
+        const data = await api(`/tasks/clear?status=${status}`, {
+            method: "DELETE"
+        });
+
+        if (data.success) {
+            showToast(data.message, "success");
+            // 重置批量模式状态
+            batchMode = false;
+            selectedTasks.clear();
+            currentBatchStatus = null;
+            // 重置全选复选框
+            resetSelectAllCheckboxes();
+            updateBatchUI();
+            loadAllData();
+        } else {
+            showToast(data.message, "error");
+        }
+    } catch (err) {
+        showToast("清空失败", "error");
+    }
+}
+
+function resetSelectAllCheckboxes() {
+    // 重置所有全选复选框
+    document.querySelectorAll(".batch-select-all input[type='checkbox']").forEach(cb => {
+        cb.checked = false;
+    });
+    // 重置所有任务复选框
+    document.querySelectorAll(".task-checkbox input[type='checkbox']").forEach(cb => {
+        cb.checked = false;
+    });
 }

@@ -32,6 +32,8 @@ struct Task {
     #[serde(default)]
     deadline: String,
     created_at: String,
+    #[serde(default)]
+    completed_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -395,13 +397,19 @@ async fn login(
 ) -> impl IntoResponse {
     let phone = req.phone.trim().to_string();
     let password = req.password.trim().to_string();
+
+    // 验证手机号格式
+    if !validate_phone(&phone) {
+        return (StatusCode::BAD_REQUEST, err("手机号格式错误，应为11位数字"));
+    }
+
     let users = state.read_users();
     let stored_hash = match users.get(&phone) {
         Some(h) => h.clone(),
-        None => return (StatusCode::UNAUTHORIZED, err("手机号或密码错误")),
+        None => return (StatusCode::UNAUTHORIZED, err("该手机号未注册")),
     };
     if stored_hash != hash_password(&password) {
-        return (StatusCode::UNAUTHORIZED, err("手机号或密码错误"));
+        return (StatusCode::UNAUTHORIZED, err("密码错误"));
     }
     let session_id = Uuid::new_v4().to_string();
     state.sessions.write().await.insert(session_id.clone(), phone);
@@ -511,6 +519,7 @@ async fn create_task(
         start_date: req.start_date,
         deadline: req.deadline,
         created_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        completed_at: String::new(),
     };
 
     let mut tasks = state.read_tasks(&phone);
@@ -568,6 +577,12 @@ async fn toggle_task(
         None => return (StatusCode::NOT_FOUND, err("任务不存在")),
     };
     task.completed = !task.completed;
+    // 记录完成时间
+    if task.completed {
+        task.completed_at = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    } else {
+        task.completed_at = String::new();
+    }
     let updated = task.clone();
     match state.write_tasks(&phone, &tasks) {
         Ok(_) => {
@@ -612,6 +627,135 @@ async fn delete_task(
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
         },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchDeleteRequest {
+    task_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClearTasksRequest {
+    status: String, // "pending", "completed", "expired"
+}
+
+async fn batch_delete_tasks(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BatchDeleteRequest>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+
+    if req.task_ids.is_empty() {
+        return (StatusCode::BAD_REQUEST, err("请选择要删除的任务"));
+    }
+
+    let mut tasks = state.read_tasks(&phone);
+    let mut recycle_bin = state.read_recycle_bin(&phone);
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut deleted_count = 0;
+
+    // 找到并移除指定的任务
+    let mut to_remove = Vec::new();
+    for (idx, task) in tasks.iter().enumerate() {
+        if req.task_ids.contains(&task.id) {
+            to_remove.push(idx);
+        }
+    }
+
+    // 从后往前删除，避免索引问题
+    for idx in to_remove.into_iter().rev() {
+        let task = tasks.remove(idx);
+        recycle_bin.insert(0, RecycleBinItem {
+            task,
+            deleted_at: now.clone(),
+        });
+        deleted_count += 1;
+    }
+
+    // 保留最近100条
+    if recycle_bin.len() > 100 {
+        recycle_bin.truncate(100);
+    }
+
+    match state.write_recycle_bin(&phone, &recycle_bin) {
+        Ok(_) => match state.write_tasks(&phone, &tasks) {
+            Ok(_) => (StatusCode::OK, ok(&format!("已删除{}个任务", deleted_count), ())),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("删除失败: {e}"))),
+    }
+}
+
+async fn clear_tasks(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Query(req): Query<ClearTasksRequest>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+
+    let mut tasks = state.read_tasks(&phone);
+    let mut recycle_bin = state.read_recycle_bin(&phone);
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now_naive = Local::now().naive_local();
+
+    // 根据状态筛选要删除的任务
+    let mut to_remove = Vec::new();
+    for (idx, task) in tasks.iter().enumerate() {
+        let should_delete = match req.status.as_str() {
+            "pending" => !task.completed && !is_task_expired(task, now_naive),
+            "completed" => task.completed,
+            "expired" => !task.completed && is_task_expired(task, now_naive),
+            _ => false,
+        };
+        if should_delete {
+            to_remove.push(idx);
+        }
+    }
+
+    let deleted_count = to_remove.len();
+
+    // 从后往前删除
+    for idx in to_remove.into_iter().rev() {
+        let task = tasks.remove(idx);
+        recycle_bin.insert(0, RecycleBinItem {
+            task,
+            deleted_at: now.clone(),
+        });
+    }
+
+    // 保留最近100条
+    if recycle_bin.len() > 100 {
+        recycle_bin.truncate(100);
+    }
+
+    match state.write_recycle_bin(&phone, &recycle_bin) {
+        Ok(_) => match state.write_tasks(&phone, &tasks) {
+            Ok(_) => (StatusCode::OK, ok(&format!("已清空{}个任务", deleted_count), ())),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("清空失败: {e}"))),
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("清空失败: {e}"))),
+    }
+}
+
+fn is_task_expired(task: &Task, now: chrono::NaiveDateTime) -> bool {
+    if task.deadline.is_empty() {
+        return false;
+    }
+    if let Ok(dl) = NaiveDateTime::parse_from_str(&task.deadline, "%Y-%m-%dT%H:%M") {
+        let dl_local = dl - Duration::hours(8);
+        dl_local < now
+    } else if let Ok(dl_date) = chrono::NaiveDate::parse_from_str(&task.deadline, "%Y-%m-%d") {
+        dl_date < now.date()
+    } else {
+        false
     }
 }
 
@@ -888,6 +1032,7 @@ async fn generate_tasks(
                         start_date: gen_datetime,
                         deadline,
                         created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        completed_at: String::new(),
                     };
                     tasks.push(task);
                     tmpl.last_generated = Some(gen_date_str);
@@ -925,6 +1070,7 @@ async fn generate_tasks(
                         start_date: gen_datetime,
                         deadline,
                         created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        completed_at: String::new(),
                     };
                     tasks.push(task);
                     tmpl.last_generated = Some(gen_date_str);
@@ -967,6 +1113,7 @@ async fn generate_tasks(
                         start_date: gen_datetime,
                         deadline,
                         created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        completed_at: String::new(),
                     };
                     tasks.push(task);
                     tmpl.last_generated = Some(gen_date_str);
@@ -1044,6 +1191,120 @@ async fn checkin(
         }))),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("签到失败: {e}"))),
     }
+}
+
+// ─── 用户中心 ───────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ChangePasswordRequest {
+    old_password: String,
+    new_password: String,
+}
+
+async fn get_user_profile(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+    (StatusCode::OK, ok("获取成功", serde_json::json!({ "phone": phone })))
+}
+
+async fn change_password(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ChangePasswordRequest>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+
+    let new_password = req.new_password.trim().to_string();
+    if new_password.len() < 6 {
+        return (StatusCode::BAD_REQUEST, err("新密码长度不能低于6位"));
+    }
+
+    let mut users = state.read_users();
+    let stored_hash = match users.get(&phone) {
+        Some(h) => h.clone(),
+        None => return (StatusCode::NOT_FOUND, err("用户不存在")),
+    };
+
+    if stored_hash != hash_password(&req.old_password) {
+        return (StatusCode::BAD_REQUEST, err("原密码错误"));
+    }
+
+    users.insert(phone.clone(), hash_password(&new_password));
+    match state.write_users(&users) {
+        Ok(_) => (StatusCode::OK, ok("密码修改成功", ())),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, err(&format!("修改失败: {e}"))),
+    }
+}
+
+async fn get_user_stats(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let phone = match get_session_phone(&headers, &state).await {
+        Ok(p) => p,
+        Err((s, r)) => return (s, r),
+    };
+
+    let tasks = state.read_tasks(&phone);
+    let now = Local::now();
+    let now_naive = now.naive_local();
+
+    // 统计任务状态
+    let total = tasks.len();
+    let completed = tasks.iter().filter(|t| t.completed).count();
+    let expired = tasks.iter().filter(|t| {
+        if t.completed || t.deadline.is_empty() {
+            return false;
+        }
+        if let Ok(dl) = NaiveDateTime::parse_from_str(&t.deadline, "%Y-%m-%dT%H:%M") {
+            let dl_local = dl - Duration::hours(8);
+            dl_local < now_naive
+        } else if let Ok(dl_date) = chrono::NaiveDate::parse_from_str(&t.deadline, "%Y-%m-%d") {
+            dl_date < now.date_naive()
+        } else {
+            false
+        }
+    }).count();
+    let pending = total - completed - expired;
+
+    // 统计每月完成量（最近12个月）
+    let mut monthly_completed: HashMap<String, u32> = HashMap::new();
+    // 初始化最近12个月
+    for i in 0..12 {
+        let month = (now - Duration::days(30 * i)).format("%Y-%m").to_string();
+        monthly_completed.insert(month, 0);
+    }
+    // 统计已完成任务（使用 completed_at 字段）
+    for task in &tasks {
+        if task.completed && !task.completed_at.is_empty() {
+            if let Ok(completed) = NaiveDateTime::parse_from_str(&task.completed_at, "%Y-%m-%dT%H:%M:%S") {
+                let month = completed.format("%Y-%m").to_string();
+                if let Some(count) = monthly_completed.get_mut(&month) {
+                    *count += 1;
+                }
+            }
+        }
+    }
+
+    // 转换为有序数组
+    let mut monthly_data: Vec<(String, u32)> = monthly_completed.into_iter().collect();
+    monthly_data.sort_by(|a, b| a.0.cmp(&b.0));
+
+    (StatusCode::OK, ok("获取成功", serde_json::json!({
+        "total": total,
+        "completed": completed,
+        "pending": pending,
+        "expired": expired,
+        "monthly_completed": monthly_data
+    })))
 }
 
 // ─── 数据导出 ───────────────────────────────────────────────
@@ -1223,6 +1484,8 @@ pub async fn run_server() {
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/{id}", put(update_task).delete(delete_task))
         .route("/tasks/{id}/toggle", post(toggle_task))
+        .route("/tasks/batch-delete", post(batch_delete_tasks))
+        .route("/tasks/clear", delete(clear_tasks))
         .route("/templates", get(list_templates).post(create_template))
         .route("/templates/{id}", put(update_template).delete(delete_template))
         .route("/templates/generate", post(generate_tasks))
@@ -1231,6 +1494,9 @@ pub async fn run_server() {
         .route("/recycle/{id}", delete(permanent_delete_task))
         .route("/checkin", post(checkin))
         .route("/checkin/status", get(checkin_status))
+        .route("/user/profile", get(get_user_profile))
+        .route("/user/password", put(change_password))
+        .route("/user/stats", get(get_user_stats))
         .route("/export", get(export_data))
         .route("/import", post(import_data));
 

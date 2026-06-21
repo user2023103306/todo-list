@@ -1,6 +1,19 @@
 mod server;
 
 fn main() {
+    // 设置工作目录：优先使用当前目录，如果找不到 static 目录则使用 exe 所在目录
+    let current_dir = std::env::current_dir().unwrap_or_default();
+    if !current_dir.join("static").exists() {
+        // 当前目录没有 static 目录，尝试使用 exe 所在目录
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                if exe_dir.join("static").exists() {
+                    let _ = std::env::set_current_dir(exe_dir);
+                }
+            }
+        }
+    }
+
     // 创建tokio运行时
     let rt = tokio::runtime::Runtime::new().unwrap();
 

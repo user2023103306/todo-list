@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TaskFlow - 任务管理</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -126,6 +127,10 @@
                     <span class="topbar-phone" id="display-phone"></span>
                 </div>
                 <div class="topbar-right">
+                    <button class="btn btn-sm btn-outline" id="btn-user-center" title="用户中心">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                        用户中心
+                    </button>
                     <button class="btn btn-sm btn-outline" id="btn-export" title="导出数据">
                         <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                         导出
@@ -269,7 +274,25 @@
                     <span class="section-icon">&#128203;</span>
                     待办事项
                     <span class="badge" id="badge-pending">0</span>
+                    <div class="section-actions">
+                        <button class="btn btn-outline btn-sm batch-btn" data-status="pending" title="批量操作">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                            批量
+                        </button>
+                        <button class="btn btn-outline btn-sm clear-btn" data-status="pending" title="清空待办">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                            清空
+                        </button>
+                    </div>
                 </h2>
+                <div class="batch-actions" id="batch-actions-pending">
+                    <label class="batch-select-all">
+                        <input type="checkbox" onchange="selectAllTasks('pending')">
+                        全选
+                    </label>
+                    <span class="batch-count">已选择 0 项</span>
+                    <button class="btn btn-danger btn-sm" onclick="promptBatchDelete()">批量删除</button>
+                </div>
                 <div id="list-pending" class="task-list"></div>
                 <div class="empty-state" id="empty-pending">
                     <div class="empty-emoji">&#127919;</div>
@@ -285,7 +308,25 @@
                     <span class="section-icon">&#9989;</span>
                     已完成
                     <span class="badge badge-done" id="badge-done">0</span>
+                    <div class="section-actions">
+                        <button class="btn btn-outline btn-sm batch-btn" data-status="completed" title="批量操作">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                            批量
+                        </button>
+                        <button class="btn btn-outline btn-sm clear-btn" data-status="completed" title="清空已完成">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                            清空
+                        </button>
+                    </div>
                 </h2>
+                <div class="batch-actions" id="batch-actions-completed">
+                    <label class="batch-select-all">
+                        <input type="checkbox" onchange="selectAllTasks('completed')">
+                        全选
+                    </label>
+                    <span class="batch-count">已选择 0 项</span>
+                    <button class="btn btn-danger btn-sm" onclick="promptBatchDelete()">批量删除</button>
+                </div>
                 <div id="list-done" class="task-list"></div>
                 <div class="empty-state" id="empty-done">
                     <div class="empty-emoji">&#128170;</div>
@@ -318,7 +359,25 @@
                         <span class="section-icon">&#128679;</span>
                         已过期
                         <span class="badge badge-expired" id="badge-expired">0</span>
+                        <div class="section-actions">
+                            <button class="btn btn-outline btn-sm batch-btn" data-status="expired" title="批量操作">
+                                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                                批量
+                            </button>
+                            <button class="btn btn-outline btn-sm clear-btn" data-status="expired" title="清空已过期">
+                                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                                清空
+                            </button>
+                        </div>
                     </h2>
+                    <div class="batch-actions" id="batch-actions-expired">
+                        <label class="batch-select-all">
+                            <input type="checkbox" onchange="selectAllTasks('expired')">
+                            全选
+                        </label>
+                        <span class="batch-count">已选择 0 项</span>
+                        <button class="btn btn-danger btn-sm" onclick="promptBatchDelete()">批量删除</button>
+                    </div>
                     <div id="list-expired" class="task-list"></div>
                     <div class="empty-state" id="empty-expired">
                         <div class="empty-emoji">&#127881;</div>
@@ -353,6 +412,76 @@
             </div>
 
         </div>
+
+        <!-- ==================== 用户中心 ==================== -->
+        <div id="view-user-center" class="view hidden">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <div class="topbar-logo">
+                        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="26" height="26">
+                            <rect x="4" y="8" width="40" height="32" rx="6" stroke="url(#g4)" stroke-width="2.5" fill="none"/>
+                            <path d="M14 24L21 31L34 17" stroke="url(#g4)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <defs><linearGradient id="g4" x1="0" y1="0" x2="48" y2="48"><stop offset="0%" stop-color="#667eea"/><stop offset="100%" stop-color="#764ba2"/></linearGradient></defs>
+                        </svg>
+                        <span class="topbar-brand">用户中心</span>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="btn btn-sm btn-outline" id="btn-back-main">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>
+                        返回
+                    </button>
+                </div>
+            </header>
+
+            <div class="user-center-content">
+                <!-- 用户信息卡片 -->
+                <div class="card user-info-card">
+                    <h3 class="card-title">用户信息</h3>
+                    <div class="user-info-row">
+                        <span class="user-info-label">手机号：</span>
+                        <span class="user-info-value" id="user-phone">-</span>
+                    </div>
+                </div>
+
+                <!-- 修改密码卡片 -->
+                <div class="card change-password-card">
+                    <h3 class="card-title">修改密码</h3>
+                    <form id="form-change-password" autocomplete="off">
+                        <div class="form-group">
+                            <label for="old-password">原密码</label>
+                            <input type="password" id="old-password" placeholder="请输入原密码" minlength="6" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="new-password">新密码</label>
+                            <input type="password" id="new-password" placeholder="至少6位" minlength="6" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="confirm-password">确认新密码</label>
+                            <input type="password" id="confirm-password" placeholder="再次输入新密码" minlength="6" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">修改密码</button>
+                    </form>
+                </div>
+
+                <!-- 任务统计饼图 -->
+                <div class="card stats-chart-card">
+                    <h3 class="card-title">任务完成情况</h3>
+                    <div class="chart-container">
+                        <canvas id="pie-chart"></canvas>
+                    </div>
+                    <div class="chart-legend" id="pie-legend"></div>
+                </div>
+
+                <!-- 月度完成柱状图 -->
+                <div class="card monthly-chart-card">
+                    <h3 class="card-title">月度任务完成量</h3>
+                    <div class="chart-container">
+                        <canvas id="bar-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Toast -->
@@ -367,6 +496,19 @@
             <div class="modal-actions">
                 <button class="btn btn-outline" id="modal-cancel">取消</button>
                 <button class="btn btn-danger" id="modal-confirm">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量操作确认弹窗 -->
+    <div id="batch-modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-icon">&#9888;&#65039;</div>
+            <p class="modal-text" id="batch-modal-text">确定要删除选中的任务吗？</p>
+            <p class="modal-sub" id="batch-modal-sub">此操作无法撤销</p>
+            <div class="modal-actions">
+                <button class="btn btn-outline" id="batch-modal-cancel">取消</button>
+                <button class="btn btn-danger" id="batch-modal-confirm">确认删除</button>
             </div>
         </div>
     </div>
